@@ -32,6 +32,7 @@ class MainActivity : AppCompatActivity() {
   private val weakThis = WeakReference(this)
   private val firebaseServiceConnection = FirebaseServiceConnectionImpl(weakThis)
   private val firebaseAuthStateListener = FirebaseAuthStateListenerImpl(weakThis)
+  private val firebaseAuthIdTokenListener = FirebaseAuthIdTokenListenerImpl(weakThis)
   private var fragmentTransactionsEnabled = false
 
   val firebaseService: FirebaseServiceIBinder?
@@ -54,6 +55,7 @@ class MainActivity : AppCompatActivity() {
     fragmentTransactionsEnabled = false
     weakThis.clear()
     firebaseServiceConnection.service?.auth?.removeAuthStateListener(firebaseAuthStateListener)
+    firebaseServiceConnection.service?.auth?.removeIdTokenListener(firebaseAuthIdTokenListener)
     unbindService(firebaseServiceConnection)
     super.onDestroy()
   }
@@ -148,6 +150,7 @@ class MainActivity : AppCompatActivity() {
     require(connection === firebaseServiceConnection)
 
     service.auth.addAuthStateListener(firebaseAuthStateListener)
+    service.auth.addIdTokenListener(firebaseAuthIdTokenListener)
 
     updateUi()
   }
@@ -199,6 +202,19 @@ class MainActivity : AppCompatActivity() {
     override fun onAuthStateChanged(auth: FirebaseAuth) {
       logger.log { "onAuthStateChanged()" }
       activity.get()?.runOnUiThread { activity.get()?.onFirebaseAuthStateChanged(this) }
+    }
+  }
+
+  private class FirebaseAuthIdTokenListenerImpl(val activity: WeakReference<MainActivity>) :
+      FirebaseAuth.IdTokenListener {
+
+    private val logger =
+        Logger("FirebaseAuthIdTokenListenerImpl").apply {
+          log { "Created by ${activity.get()?.logger?.nameWithId}" }
+        }
+
+    override fun onIdTokenChanged(auth: FirebaseAuth) {
+      logger.log { "onIdTokenChanged()" }
     }
   }
 }

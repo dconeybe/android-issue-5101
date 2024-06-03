@@ -32,6 +32,10 @@ dependencies {
   implementation(libs.androidx.fragment.ktx)
   implementation(libs.androidx.lifecycle.viewmodel.ktx)
   implementation(libs.kotlinx.coroutines.android)
+  implementation(libs.androidx.constraintlayout)
+  implementation(libs.androidx.recyclerview)
+
+
 
   implementation(platform(libs.firebase.bom))
   implementation(libs.firebase.auth)
