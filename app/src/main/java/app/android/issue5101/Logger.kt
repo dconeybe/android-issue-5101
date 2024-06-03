@@ -15,7 +15,11 @@
  */
 package app.android.issue5101
 
+import android.app.Service
+import android.content.ComponentName
+import android.content.Intent
 import android.os.Bundle
+import android.os.IBinder
 import android.util.Log
 import kotlin.random.Random
 
@@ -32,6 +36,10 @@ fun Logger.log(block: () -> String) {
 
 fun Logger.onCreate(savedInstanceState: Bundle?) {
   log { "onCreate(savedInstanceState=$savedInstanceState)" }
+}
+
+fun Logger.onCreate() {
+  log { "onCreate()" }
 }
 
 fun Logger.onDestroy() {
@@ -52,4 +60,49 @@ fun Logger.onStart() {
 
 fun Logger.onStop() {
   log { "onStop()" }
+}
+
+fun Logger.onStartCommand(intent: Intent?, flags: Int, startId: Int) {
+  log {
+    "onStartCommand(intent=$intent, flags=${nameFromOnStartCommandFlags(flags)}, startId=$startId})"
+  }
+}
+
+fun Logger.onBind(intent: Intent) {
+  log { "onBind(intent=$intent)" }
+}
+
+fun Logger.onServiceConnected(name: ComponentName?, service: IBinder?) {
+  log { "onServiceConnected(name=$name, service=$service)" }
+}
+
+fun Logger.onServiceDisconnected(name: ComponentName?) {
+  log { "onServiceDisconnected(name=$name)" }
+}
+
+private fun nameFromOnStartCommandFlags(flags: Int): String {
+  if (flags == 0) {
+    return "0"
+  }
+
+  val flagNames = mutableSetOf<String>()
+  var flagsFound = 0
+
+  if ((flags and Service.START_FLAG_REDELIVERY) == Service.START_FLAG_REDELIVERY) {
+    flagNames.add("START_FLAG_REDELIVERY")
+    flagsFound = flagsFound or Service.START_FLAG_REDELIVERY
+  }
+  if ((flags and Service.START_FLAG_RETRY) == Service.START_FLAG_RETRY) {
+    flagNames.add("START_FLAG_RETRY")
+    flagsFound = flagsFound or Service.START_FLAG_RETRY
+  }
+
+  val sortedFlagNames = flagNames.sorted().toMutableList()
+
+  val unusedFlags = flagsFound.inv() and flags
+  if (unusedFlags != 0) {
+    sortedFlagNames.add("0x${unusedFlags.toString(16).uppercase().padStart(8, '0')}")
+  }
+
+  return sortedFlagNames.joinToString("|")
 }
