@@ -17,6 +17,7 @@ package app.android.issue5101
 
 import android.app.Service
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.os.IBinder
@@ -38,12 +39,28 @@ fun Logger.onCreate(savedInstanceState: Bundle?) {
   log { "onCreate(savedInstanceState=$savedInstanceState)" }
 }
 
+fun Logger.onAttach(context: Context) {
+  log { "onAttach(context=$context)" }
+}
+
+fun Logger.onDetach() {
+  log { "onDetach()" }
+}
+
 fun Logger.onCreate() {
   log { "onCreate()" }
 }
 
 fun Logger.onDestroy() {
   log { "onDestroy()" }
+}
+
+fun Logger.onSaveInstanceState() {
+  log { "onSaveInstanceState()" }
+}
+
+fun Logger.onCreateView() {
+  log { "onCreateView()" }
 }
 
 fun Logger.onResume() {

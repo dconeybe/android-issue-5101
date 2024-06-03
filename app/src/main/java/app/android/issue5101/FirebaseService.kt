@@ -19,27 +19,28 @@ import android.app.Service
 import android.content.Intent
 import android.os.Binder
 import android.os.IBinder
-import androidx.annotation.MainThread
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.firestore
-import kotlinx.coroutines.tasks.await
+import java.lang.ref.WeakReference
 
 class FirebaseService : Service() {
 
   private val logger = Logger("FirebaseService")
+  private val weakThis = WeakReference(this)
   private lateinit var binder: FirebaseServiceIBinder
 
   override fun onCreate() {
     logger.onCreate()
     super.onCreate()
-    binder = FirebaseServiceBinderImpl()
+    binder = FirebaseServiceBinderImpl(weakThis)
   }
 
   override fun onDestroy() {
     logger.onDestroy()
+    weakThis.clear()
     super.onDestroy()
   }
 
@@ -59,12 +60,16 @@ class FirebaseService : Service() {
     return START_NOT_STICKY
   }
 
-  private class FirebaseServiceBinderImpl : Binder(), FirebaseServiceIBinder {
+  private class FirebaseServiceBinderImpl(val service: WeakReference<FirebaseService>) :
+      Binder(), FirebaseServiceIBinder {
 
-    private val logger = Logger("FirebaseServiceBinderImpl")
+    private val logger =
+        Logger("FirebaseServiceBinderImpl").apply {
+          log { "Created by ${service.get()?.logger?.nameWithId}" }
+        }
 
-    private val auth: FirebaseAuth
-    private val firestore: FirebaseFirestore
+    override val auth: FirebaseAuth
+    override val firestore: FirebaseFirestore
 
     init {
       FirebaseFirestore.setLoggingEnabled(true)
@@ -73,28 +78,10 @@ class FirebaseService : Service() {
       logger.log { "firestore = Firebase.firestore" }
       firestore = Firebase.firestore
     }
-
-    override fun isLoggedIn(): Boolean {
-      logger.log { "isLoggedIn()" }
-      val currentUser = auth.currentUser
-      logger.log { "auth.currentUser=$currentUser" }
-      val isLoggedIn = currentUser !== null
-      logger.log { "isLoggedIn() returning $isLoggedIn" }
-      return isLoggedIn
-    }
-
-    override suspend fun login(): Boolean {
-      logger.log { "login()" }
-      val result = auth.signInAnonymously().await()
-      logger.log { "login() done: ${result.user?.displayName}" }
-      return result.user !== null
-    }
   }
 }
 
 interface FirebaseServiceIBinder : IBinder {
-
-  @MainThread fun isLoggedIn(): Boolean
-
-  @MainThread suspend fun login(): Boolean
+  val auth: FirebaseAuth
+  val firestore: FirebaseFirestore
 }
