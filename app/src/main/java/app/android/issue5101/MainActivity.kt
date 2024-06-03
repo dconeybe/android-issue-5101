@@ -22,6 +22,7 @@ import android.os.Bundle
 import android.os.IBinder
 import androidx.annotation.MainThread
 import androidx.appcompat.app.AppCompatActivity
+import androidx.fragment.app.Fragment
 import com.google.firebase.auth.FirebaseAuth
 import java.lang.ref.WeakReference
 
@@ -99,7 +100,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     val auth = firebaseServiceConnection.service?.auth
-    logger.log { "firebaseServiceConnection.service?.auth = $auth" }
+    logger.log { "updateUi() firebaseServiceConnection.service?.auth = $auth" }
     if (auth === null) {
       return
     }
@@ -109,20 +110,33 @@ class MainActivity : AppCompatActivity() {
     val firestoreFragment = fragmentManager.findFragmentByTag(FRAGMENT_TAG_FIRESTORE)
 
     val currentUser = auth.currentUser
-    val fragmentTransaction = fragmentManager.beginTransaction()
+    logger.log { "updateUi() currentUser = $currentUser" }
+
+    val newFragment: Fragment?
+    val newFragmentTag: String
+    val oldFragment: Fragment?
     if (currentUser === null) {
-      firestoreFragment?.let { fragmentTransaction.remove(it) }
-      if (loginFragment === null) {
-        fragmentTransaction.add(R.id.bsrzamz8rn, LoginFragment(), FRAGMENT_TAG_LOGIN)
-      }
+      oldFragment = firestoreFragment
+      newFragment = if (loginFragment !== null) null else LoginFragment()
+      newFragmentTag = FRAGMENT_TAG_LOGIN
     } else {
-      loginFragment?.let { fragmentTransaction.remove(it) }
-      if (firestoreFragment === null) {
-        fragmentTransaction.add(R.id.bsrzamz8rn, FirestoreFragment(), FRAGMENT_TAG_FIRESTORE)
-      }
+      oldFragment = loginFragment
+      newFragment = if (firestoreFragment !== null) null else FirestoreFragment()
+      newFragmentTag = FRAGMENT_TAG_FIRESTORE
     }
 
-    fragmentTransaction.commit()
+    logger.log {
+      "updateUi() oldFragment=${oldFragment?.loggerNameWithId}" +
+          " newFragment=${newFragment?.loggerNameWithId}"
+    }
+    val fragmentTransaction = fragmentManager.beginTransaction()
+    if (oldFragment !== null) {
+      fragmentTransaction.remove(oldFragment)
+    }
+    if (newFragment !== null) {
+      fragmentTransaction.add(R.id.bsrzamz8rn, newFragment, newFragmentTag)
+    }
+    fragmentTransaction.commitNow()
   }
 
   @MainThread

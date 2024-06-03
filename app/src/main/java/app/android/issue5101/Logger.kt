@@ -28,8 +28,29 @@ class Logger(val name: String) {
 
   val id: String = Random.nextAlphanumericString(length = 10)
 
-  val nameWithId: String by lazy(LazyThreadSafetyMode.PUBLICATION) { "$name[$id]" }
+  val nameWithId: String = "$name[$id]"
+
+  val loggerNameAndIdProvider =
+      object : LoggerNameAndIdProvider {
+        override val loggerName
+          get() = name
+
+        override val loggerId
+          get() = id
+
+        override val loggerNameWithId
+          get() = nameWithId
+      }
 }
+
+interface LoggerNameAndIdProvider {
+  val loggerName: String
+  val loggerId: String
+  val loggerNameWithId: String
+}
+
+val Any.loggerNameWithId: String
+  get() = (this as? LoggerNameAndIdProvider)?.loggerNameWithId ?: toString()
 
 fun Logger.log(block: () -> String) {
   Log.i("Issue5101", "${nameWithId}: ${block()}")

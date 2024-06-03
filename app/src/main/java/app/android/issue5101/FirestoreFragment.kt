@@ -25,9 +25,18 @@ import androidx.annotation.MainThread
 import androidx.fragment.app.Fragment
 import java.lang.ref.WeakReference
 
-class FirestoreFragment : Fragment() {
+class FirestoreFragment : Fragment(), LoggerNameAndIdProvider {
 
   private val logger = Logger("FirestoreFragment")
+  override val loggerName
+    get() = logger.name
+
+  override val loggerId
+    get() = logger.id
+
+  override val loggerNameWithId
+    get() = logger.nameWithId
+
   private val weakThis = WeakReference(this)
 
   override fun onCreate(savedInstanceState: Bundle?) {

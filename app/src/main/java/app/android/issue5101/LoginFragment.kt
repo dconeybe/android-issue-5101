@@ -31,9 +31,18 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.tasks.await
 
-class LoginFragment : Fragment() {
+class LoginFragment : Fragment(), LoggerNameAndIdProvider {
 
   private val logger = Logger("LoginFragment")
+  override val loggerName
+    get() = logger.name
+
+  override val loggerId
+    get() = logger.id
+
+  override val loggerNameWithId
+    get() = logger.nameWithId
+
   private val weakThis = WeakReference(this)
 
   private val viewModel: MyViewModel by viewModels()
