@@ -26,6 +26,8 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.firebase.Firebase
+import com.google.firebase.auth.auth
 import java.lang.ref.WeakReference
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
@@ -47,8 +49,8 @@ class LoginFragment : Fragment(), LoggerNameAndIdProvider {
 
   private val viewModel: MyViewModel by viewModels()
 
-  private lateinit var loginButton: Button
-  private lateinit var spinner: View
+  private var loginButton: Button? = null
+  private var spinner: View? = null
 
   override fun onCreate(savedInstanceState: Bundle?) {
     logger.onCreate(savedInstanceState)
@@ -71,6 +73,11 @@ class LoginFragment : Fragment(), LoggerNameAndIdProvider {
     super.onDetach()
   }
 
+  override fun onViewStateRestored(savedInstanceState: Bundle?) {
+    logger.onViewStateRestored()
+    super.onViewStateRestored(savedInstanceState)
+  }
+
   override fun onSaveInstanceState(outState: Bundle) {
     logger.onSaveInstanceState()
     super.onSaveInstanceState(outState)
@@ -84,12 +91,20 @@ class LoginFragment : Fragment(), LoggerNameAndIdProvider {
     logger.onCreateView()
     val view = inflater.inflate(R.layout.fragment_login, container, false)
 
-    loginButton = view.findViewById(R.id.login)
+    loginButton =
+        view.findViewById<Button>(R.id.login).apply {
+          setOnClickListener { handleLoginButtonClick() }
+        }
     spinner = view.findViewById(R.id.spinner)
 
-    loginButton.setOnClickListener { handleLoginButtonClick() }
-
     return view
+  }
+
+  override fun onDestroyView() {
+    logger.onDestroyView()
+    spinner = null
+    loginButton = null
+    super.onDestroyView()
   }
 
   override fun onStart() {
@@ -105,6 +120,7 @@ class LoginFragment : Fragment(), LoggerNameAndIdProvider {
   override fun onResume() {
     logger.onResume()
     super.onResume()
+    updateUi()
   }
 
   override fun onPause() {
@@ -116,36 +132,31 @@ class LoginFragment : Fragment(), LoggerNameAndIdProvider {
   private fun updateUi() {
     logger.log { "updateUi()" }
     if (viewModel.isLoginInProgress) {
-      loginButton.isEnabled = false
-      spinner.visibility = View.VISIBLE
+      loginButton?.isEnabled = false
+      spinner?.visibility = View.VISIBLE
     } else {
-      loginButton.isEnabled = true
-      spinner.visibility = View.GONE
+      loginButton?.isEnabled = true
+      spinner?.visibility = View.GONE
     }
   }
 
   @MainThread
   private fun handleLoginButtonClick() {
     logger.log { "handleLoginButtonClick()" }
-
-    val service = (context as MainActivity).firebaseService
-    if (service === null) {
-      return
-    }
-
-    viewModel.startLogin(service)
+    viewModel.startLogin()
     updateUi()
   }
 
   class MyViewModel : ViewModel() {
+    private val firebaseAuth = Firebase.auth
     private var loginJob: Deferred<Unit>? = null
 
     val isLoginInProgress: Boolean
       get() = loginJob?.isActive ?: false
 
-    fun startLogin(service: FirebaseServiceIBinder) {
+    fun startLogin() {
       check(!isLoginInProgress) { "must not be called when isLoginInProgress=$isLoginInProgress" }
-      loginJob = viewModelScope.async { service.auth.signInAnonymously().await() }
+      loginJob = viewModelScope.async { firebaseAuth.signInAnonymously().await() }
     }
   }
 }

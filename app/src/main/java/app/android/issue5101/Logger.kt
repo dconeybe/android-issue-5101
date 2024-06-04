@@ -76,12 +76,24 @@ fun Logger.onDestroy() {
   log { "onDestroy()" }
 }
 
+fun Logger.onRestoreInstanceState() {
+  log { "onRestoreInstanceState()" }
+}
+
 fun Logger.onSaveInstanceState() {
   log { "onSaveInstanceState()" }
 }
 
+fun Logger.onViewStateRestored() {
+  log { "onViewStateRestored()" }
+}
+
 fun Logger.onCreateView() {
   log { "onCreateView()" }
+}
+
+fun Logger.onDestroyView() {
+  log { "onDestroyView()" }
 }
 
 fun Logger.onResume() {

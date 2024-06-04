@@ -15,63 +15,73 @@
  */
 package app.android.issue5101
 
-import android.content.ComponentName
-import android.content.Intent
-import android.content.ServiceConnection
 import android.os.Bundle
-import android.os.IBinder
 import androidx.annotation.MainThread
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.Lifecycle
+import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.auth
 import java.lang.ref.WeakReference
 
 class MainActivity : AppCompatActivity() {
 
   private val logger = Logger("MainActivity")
   private val weakThis = WeakReference(this)
-  private val firebaseServiceConnection = FirebaseServiceConnectionImpl(weakThis)
   private val firebaseAuthStateListener = FirebaseAuthStateListenerImpl(weakThis)
   private val firebaseAuthIdTokenListener = FirebaseAuthIdTokenListenerImpl(weakThis)
-  private var fragmentTransactionsEnabled = false
 
-  val firebaseService: FirebaseServiceIBinder?
-    get() = firebaseServiceConnection.service
+  private lateinit var firebaseAuth: FirebaseAuth
 
   override fun onCreate(savedInstanceState: Bundle?) {
     logger.onCreate(savedInstanceState)
     super.onCreate(savedInstanceState)
-    fragmentTransactionsEnabled = true
 
     setContentView(R.layout.activity_main)
 
-    val serviceIntent = Intent(this, FirebaseService::class.java)
-    val bindResult = bindService(serviceIntent, firebaseServiceConnection, BIND_AUTO_CREATE)
-    check(bindResult) { "bindService(intent=$serviceIntent) failed" }
+    firebaseAuth = Firebase.auth
+    firebaseAuth.addAuthStateListener(firebaseAuthStateListener)
+    firebaseAuth.addIdTokenListener(firebaseAuthIdTokenListener)
+
+    logger.log { "onCreate() savedInstanceState===null: ${savedInstanceState === null}" }
+    if (savedInstanceState === null) {
+      val currentUser = firebaseAuth.currentUser
+      logger.log { "onCreate() currentUser=$currentUser" }
+      val (initialFragment, initialFragmentTag) =
+          if (currentUser === null) Pair(LoginFragment(), FRAGMENT_TAG_LOGIN)
+          else Pair(FirestoreFragment(), FRAGMENT_TAG_FIRESTORE)
+      logger.log {
+        "onCreate() adding fragment ${initialFragment.loggerNameWithId} with tag=$initialFragmentTag"
+      }
+      supportFragmentManager
+          .beginTransaction()
+          .add(R.id.bsrzamz8rn, initialFragment, initialFragmentTag)
+          .commit()
+    }
   }
 
   override fun onDestroy() {
     logger.onDestroy()
-    fragmentTransactionsEnabled = false
     weakThis.clear()
-    firebaseServiceConnection.service?.auth?.removeAuthStateListener(firebaseAuthStateListener)
-    firebaseServiceConnection.service?.auth?.removeIdTokenListener(firebaseAuthIdTokenListener)
-    unbindService(firebaseServiceConnection)
+    firebaseAuth.removeAuthStateListener(firebaseAuthStateListener)
+    firebaseAuth.removeIdTokenListener(firebaseAuthIdTokenListener)
     super.onDestroy()
+  }
+
+  override fun onRestoreInstanceState(savedInstanceState: Bundle) {
+    logger.onRestoreInstanceState()
+    super.onRestoreInstanceState(savedInstanceState)
   }
 
   override fun onSaveInstanceState(outState: Bundle) {
     logger.onSaveInstanceState()
-    fragmentTransactionsEnabled = false
     super.onSaveInstanceState(outState)
   }
 
   override fun onStart() {
     logger.onStart()
     super.onStart()
-
-    fragmentTransactionsEnabled = true
-    updateUi()
   }
 
   override fun onStop() {
@@ -82,8 +92,6 @@ class MainActivity : AppCompatActivity() {
   override fun onResume() {
     logger.onResume()
     super.onResume()
-
-    fragmentTransactionsEnabled = true
     updateUi()
   }
 
@@ -94,101 +102,57 @@ class MainActivity : AppCompatActivity() {
 
   @MainThread
   private fun updateUi() {
-    logger.log { "updateUi()" }
+    val currentUser = firebaseAuth.currentUser
+    val loginFragment = supportFragmentManager.findFragmentByTag(FRAGMENT_TAG_LOGIN)
+    val firestoreFragment = supportFragmentManager.findFragmentByTag(FRAGMENT_TAG_FIRESTORE)
 
-    logger.log { "updateUi() fragmentTransactionsEnabled = $fragmentTransactionsEnabled" }
-    if (!fragmentTransactionsEnabled) {
-      return
+    logger.log {
+      "updateUi()" +
+          " currentUser=$currentUser" +
+          " loginFragment=${loginFragment?.loggerNameWithId}" +
+          " firestoreFragment=${firestoreFragment?.loggerNameWithId}"
     }
 
-    val auth = firebaseServiceConnection.service?.auth
-    logger.log { "updateUi() firebaseServiceConnection.service?.auth = $auth" }
-    if (auth === null) {
-      return
-    }
-
-    val fragmentManager = supportFragmentManager
-    val loginFragment = fragmentManager.findFragmentByTag(FRAGMENT_TAG_LOGIN)
-    val firestoreFragment = fragmentManager.findFragmentByTag(FRAGMENT_TAG_FIRESTORE)
-
-    val currentUser = auth.currentUser
-    logger.log { "updateUi() currentUser = $currentUser" }
-
-    val newFragment: Fragment?
-    val newFragmentTag: String
-    val oldFragment: Fragment?
+    val showFragment: Fragment?
+    val hideFragment: Fragment?
+    val showFragmentTag: String
     if (currentUser === null) {
-      oldFragment = firestoreFragment
-      newFragment = if (loginFragment !== null) null else LoginFragment()
-      newFragmentTag = FRAGMENT_TAG_LOGIN
+      showFragment = if (loginFragment === null) LoginFragment() else null
+      showFragmentTag = FRAGMENT_TAG_LOGIN
+      hideFragment = firestoreFragment
     } else {
-      oldFragment = loginFragment
-      newFragment = if (firestoreFragment !== null) null else FirestoreFragment()
-      newFragmentTag = FRAGMENT_TAG_FIRESTORE
+      showFragment = if (firestoreFragment === null) FirestoreFragment() else null
+      showFragmentTag = FRAGMENT_TAG_FIRESTORE
+      hideFragment = loginFragment
     }
 
     logger.log {
-      "updateUi() oldFragment=${oldFragment?.loggerNameWithId}" +
-          " newFragment=${newFragment?.loggerNameWithId}"
+      "updateUi()" +
+          " showFragment=${showFragment?.loggerNameWithId}" +
+          " showFragmentTag=$showFragmentTag" +
+          " hideFragment=${hideFragment?.loggerNameWithId}"
     }
-    val fragmentTransaction = fragmentManager.beginTransaction()
-    if (oldFragment !== null) {
-      fragmentTransaction.remove(oldFragment)
-    }
-    if (newFragment !== null) {
-      fragmentTransaction.add(R.id.bsrzamz8rn, newFragment, newFragmentTag)
-    }
-    fragmentTransaction.commitNow()
-  }
 
-  @MainThread
-  private fun onFirebaseServiceConnected(
-      connection: FirebaseServiceConnectionImpl,
-      service: FirebaseServiceIBinder
-  ) {
-    logger.log { "onFirebaseServiceConnected()" }
-    require(connection === firebaseServiceConnection)
-
-    service.auth.addAuthStateListener(firebaseAuthStateListener)
-    service.auth.addIdTokenListener(firebaseAuthIdTokenListener)
-
-    updateUi()
+    supportFragmentManager
+        .beginTransaction()
+        .apply {
+          if (showFragment !== null) {
+            add(R.id.bsrzamz8rn, showFragment, showFragmentTag)
+          }
+          if (hideFragment !== null) {
+            remove(hideFragment)
+          }
+        }
+        .commit()
   }
 
   @MainThread
   private fun onFirebaseAuthStateChanged(listener: FirebaseAuthStateListenerImpl) {
     logger.log { "onFirebaseAuthStateChanged()" }
     require(listener === firebaseAuthStateListener)
-    updateUi()
-  }
-
-  private class FirebaseServiceConnectionImpl(val activity: WeakReference<MainActivity>) :
-      ServiceConnection {
-
-    private val logger =
-        Logger("FirebaseServiceConnectionImpl").apply {
-          log { "Created by ${activity.get()?.logger?.nameWithId}" }
-        }
-
-    var service: FirebaseServiceIBinder? = null
-      private set
-
-    override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-      logger.onServiceConnected(name, service)
-      val firebaseServiceIBinder = service as FirebaseServiceIBinder
-      this.service = firebaseServiceIBinder
-      activity.get()?.onFirebaseServiceConnected(this, firebaseServiceIBinder)
+    if (lifecycle.currentState == Lifecycle.State.RESUMED) {
+      updateUi()
     }
-
-    override fun onServiceDisconnected(name: ComponentName?) {
-      logger.onServiceDisconnected(name)
-      this.service = null
-    }
-  }
-
-  private companion object {
-    const val FRAGMENT_TAG_LOGIN = "tfqapd9z35.LoginFragment"
-    const val FRAGMENT_TAG_FIRESTORE = "dn478zdc25.FirestoreFragment"
   }
 
   private class FirebaseAuthStateListenerImpl(val activity: WeakReference<MainActivity>) :
@@ -216,5 +180,10 @@ class MainActivity : AppCompatActivity() {
     override fun onIdTokenChanged(auth: FirebaseAuth) {
       logger.log { "onIdTokenChanged()" }
     }
+  }
+
+  private companion object {
+    const val FRAGMENT_TAG_LOGIN = "tfqapd9z35.LoginFragment"
+    const val FRAGMENT_TAG_FIRESTORE = "dn478zdc25.FirestoreFragment"
   }
 }
