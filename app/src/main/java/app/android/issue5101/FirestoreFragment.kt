@@ -15,23 +15,25 @@
  */
 package app.android.issue5101
 
+import android.app.Application
 import android.content.Context
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Button
-import android.widget.TextView
 import androidx.annotation.AnyThread
 import androidx.annotation.MainThread
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.flowWithLifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.viewModelScope
+import app.android.issue5101.databinding.FragmentFirestoreBinding
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
+import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.EventListener
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.QuerySnapshot
@@ -40,6 +42,8 @@ import java.lang.ref.WeakReference
 import kotlin.random.Random
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class FirestoreFragment : Fragment(), LoggerNameAndIdProvider {
@@ -55,9 +59,8 @@ class FirestoreFragment : Fragment(), LoggerNameAndIdProvider {
     get() = logger.nameWithId
 
   private val viewModel: MyViewModel by viewModels()
-  private val weakThis = WeakReference(this)
 
-  private var logTextView: TextView? = null
+  private var viewBinding: FragmentFirestoreBinding? = null
 
   override fun onAttach(context: Context) {
     logger.onAttach(context)
@@ -76,7 +79,6 @@ class FirestoreFragment : Fragment(), LoggerNameAndIdProvider {
 
   override fun onDestroy() {
     logger.onDestroy()
-    weakThis.clear()
     super.onDestroy()
   }
 
@@ -96,27 +98,28 @@ class FirestoreFragment : Fragment(), LoggerNameAndIdProvider {
       savedInstanceState: Bundle?
   ): View {
     logger.onCreateView()
-    val view = inflater.inflate(R.layout.fragment_firestore, container, false)
 
-    view.findViewById<Button>(R.id.logout).setOnClickListener { handleLogoutButtonClick() }
-    view.findViewById<Button>(R.id.add_item).setOnClickListener { handleAddItemButtonClick() }
-    logTextView = view.findViewById(R.id.log)
+    viewBinding =
+        FragmentFirestoreBinding.inflate(inflater, container, false).apply {
+          logout.setOnClickListener { handleLogoutButtonClick() }
+          addItem.setOnClickListener { handleAddItemButtonClick() }
+        }
 
     if (savedInstanceState === null) {
-      updateUi(viewModel.snapshot.value)
+      updateUi(viewModel.collectionReference, viewModel.snapshot.value)
     }
     viewLifecycleOwner.lifecycleScope.launch {
       viewModel.snapshot
-          .flowWithLifecycle(viewLifecycleOwner.lifecycle, Lifecycle.State.RESUMED)
-          .collect { updateUi(it) }
+          .flowWithLifecycle(viewLifecycleOwner.lifecycle, Lifecycle.State.STARTED)
+          .collect { updateUi(viewModel.collectionReference, it) }
     }
 
-    return view
+    return viewBinding!!.root
   }
 
   override fun onDestroyView() {
     logger.onCreateView()
-    logTextView = null
+    viewBinding = null
     super.onDestroyView()
   }
 
@@ -153,29 +156,63 @@ class FirestoreFragment : Fragment(), LoggerNameAndIdProvider {
   }
 
   @MainThread
-  private fun updateUi(snapshot: MyViewModel.SnapshotErrorPair?) {
-    logger.log { "updateUi()" }
-    logTextView?.text = snapshot.toString()
+  private fun updateUi(
+      collectionReference: CollectionReference,
+      snapshot: MyViewModel.SnapshotInfo?
+  ) {
+    logger.log { "updateUi() snapshot=$snapshot" }
+
+    val text = buildString {
+      append("Collection: ${collectionReference.path}")
+      if (snapshot !== null) {
+        append('\n')
+        append("Sequence Number: ${snapshot.sequenceNumber}")
+        append('\n')
+        append("Instance ID: ${snapshot.instanceId}")
+        append('\n')
+
+        append("Num Documents: ")
+        if (snapshot.snapshot !== null) {
+          append(snapshot.snapshot.size())
+        } else {
+          append("n/a")
+        }
+        append('\n')
+
+        append("Error: ")
+        if (snapshot.error !== null) {
+          append(snapshot.error.message)
+        } else {
+          append("none")
+        }
+      }
+    }
+
+    viewBinding?.log?.text = text
   }
 
-  class MyViewModel : ViewModel() {
+  class MyViewModel(application: Application) : AndroidViewModel(application) {
     private val logger = Logger("FirestoreFragment.MyViewModel").apply { log { "created" } }
 
     val firebaseAuth = Firebase.auth
     private val firestore = Firebase.firestore
 
-    private val _snapshot = MutableStateFlow<SnapshotErrorPair?>(null)
+    private val _snapshot = MutableStateFlow<SnapshotInfo?>(null)
     val snapshot = _snapshot.asStateFlow()
 
     private val weakThis = WeakReference(this)
     private val querySnapshotListener = QuerySnapshotListenerImpl(weakThis)
-    private val collectionReference = firestore.collection("AndroidIssue5101")
+    val collectionReference = firestore.collection("AndroidIssue5101")
     private val collectionReferenceListenerRegistration =
         collectionReference.addSnapshotListener(querySnapshotListener)
+
+    private val sequenceNumberService =
+        SequenceNumberServiceConnectionImpl(getApplication()).apply { bind() }
 
     override fun onCleared() {
       logger.onCleared()
       weakThis.clear()
+      sequenceNumberService.unbind()
       collectionReferenceListenerRegistration.remove()
       super.onCleared()
     }
@@ -189,7 +226,9 @@ class FirestoreFragment : Fragment(), LoggerNameAndIdProvider {
       documentReference.set(mapOf("data" to Random.nextAlphanumericString(length = 20)))
     }
 
-    data class SnapshotErrorPair(
+    data class SnapshotInfo(
+        val sequenceNumber: Long,
+        val instanceId: String,
         val snapshot: QuerySnapshot?,
         val error: FirebaseFirestoreException?
     )
@@ -204,8 +243,15 @@ class FirestoreFragment : Fragment(), LoggerNameAndIdProvider {
 
       override fun onEvent(snapshot: QuerySnapshot?, error: FirebaseFirestoreException?) {
         logger.log { "onEvent(snapshot=$snapshot, error=$error)" }
-        val snapshotErrorPair = SnapshotErrorPair(snapshot, error)
-        viewModel.get()?._snapshot?.value = snapshotErrorPair
+        val viewModelScope = viewModel.get()?.viewModelScope ?: return
+        val sequenceNumberService = viewModel.get()?.sequenceNumberService ?: return
+        viewModelScope.launch {
+          val instanceId = "spst${Random.nextAlphanumericString(length = 8)}"
+          val sequenceNumber =
+              sequenceNumberService.binder.filterNotNull().first().nextSequenceNumber(instanceId)
+          val snapshotInfo = SnapshotInfo(sequenceNumber, instanceId, snapshot, error)
+          viewModel.get()?._snapshot?.value = snapshotInfo
+        }
       }
     }
   }

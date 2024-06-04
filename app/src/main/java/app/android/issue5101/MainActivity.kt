@@ -15,13 +15,14 @@
  */
 package app.android.issue5101
 
+import android.app.Application
 import android.os.Bundle
 import androidx.activity.viewModels
 import androidx.annotation.MainThread
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.flowWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewModelScope
@@ -34,6 +35,8 @@ import java.lang.ref.WeakReference
 import kotlin.random.Random
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
@@ -53,9 +56,9 @@ class MainActivity : AppCompatActivity() {
       updateUi(viewModel.currentUser.value)
     }
     lifecycleScope.launch {
-      viewModel.currentUser
-          .flowWithLifecycle(lifecycle, Lifecycle.State.STARTED)
-          .collect { updateUi(it) }
+      viewModel.currentUser.flowWithLifecycle(lifecycle, Lifecycle.State.STARTED).collect {
+        updateUi(it)
+      }
     }
   }
 
@@ -144,7 +147,7 @@ class MainActivity : AppCompatActivity() {
     const val FRAGMENT_TAG_FIRESTORE = "dn478zdc25.FirestoreFragment"
   }
 
-  class MyViewModel : ViewModel() {
+  class MyViewModel(application: Application) : AndroidViewModel(application) {
     private val logger = Logger("FirestoreFragment.MyViewModel").apply { log { "created" } }
     private val weakThis = WeakReference(this)
     private val firebaseAuthStateListener = FirebaseAuthStateListenerImpl(weakThis)
@@ -159,9 +162,13 @@ class MainActivity : AppCompatActivity() {
       firebaseAuth.addIdTokenListener(firebaseAuthIdTokenListener)
     }
 
+    private val sequenceNumberService =
+        SequenceNumberServiceConnectionImpl(getApplication()).apply { bind() }
+
     override fun onCleared() {
       logger.onCleared()
       weakThis.clear()
+      sequenceNumberService.unbind()
       firebaseAuth.removeIdTokenListener(firebaseAuthIdTokenListener)
       firebaseAuth.removeAuthStateListener(firebaseAuthStateListener)
       super.onCleared()
@@ -191,18 +198,22 @@ class MainActivity : AppCompatActivity() {
           }
 
       override fun onIdTokenChanged(auth: FirebaseAuth) {
-        val sequenceNumber = nextSequenceNumber()
-        val callbackId = "oitc${Random.nextAlphanumericString(length=8)}"
-        val currentUser = auth.currentUser
-        val logPrefix =
-            "onIdTokenChanged()" +
-                " sequenceNumber=$sequenceNumber" +
-                " callbackId=$callbackId" +
-                " currentUser=$currentUser"
-        logger.log { logPrefix }
+        val viewModelScope = viewModel.get()?.viewModelScope ?: return
+        val sequenceNumberService = viewModel.get()?.sequenceNumberService ?: return
 
-        if (currentUser !== null) {
-          viewModel.get()?.viewModelScope?.launch {
+        viewModelScope.launch {
+          val callbackId = "oitc${Random.nextAlphanumericString(length=8)}"
+          val sequenceNumber =
+              sequenceNumberService.binder.filterNotNull().first().nextSequenceNumber(callbackId)
+          val currentUser = auth.currentUser
+          val logPrefix =
+              "onIdTokenChanged()" +
+                  " sequenceNumber=$sequenceNumber" +
+                  " callbackId=$callbackId" +
+                  " currentUser=$currentUser"
+          logger.log { logPrefix }
+
+          if (currentUser !== null) {
             val result = currentUser.getIdToken(false).await()
             logger.log { logPrefix + " token=${result.token}" }
             logger.log { logPrefix + " authTimestamp=${result.authTimestamp}" }

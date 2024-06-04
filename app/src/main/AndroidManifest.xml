@@ -19,7 +19,7 @@
             </intent-filter>
         </activity>
 
-        <service android:name=".FirebaseService" />
+        <service android:name=".SequenceNumberService" />
     </application>
 
 

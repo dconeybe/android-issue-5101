@@ -96,6 +96,10 @@ fun Logger.onCreateView() {
   log { "onCreateView()" }
 }
 
+fun Logger.onViewCreated() {
+  log { "onViewCreated()" }
+}
+
 fun Logger.onDestroyView() {
   log { "onDestroyView()" }
 }
@@ -122,7 +126,7 @@ fun Logger.onStartCommand(intent: Intent?, flags: Int, startId: Int) {
   }
 }
 
-fun Logger.onBind(intent: Intent) {
+fun Logger.onBind(intent: Intent?) {
   log { "onBind(intent=$intent)" }
 }
 

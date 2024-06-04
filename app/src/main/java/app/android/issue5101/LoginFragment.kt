@@ -20,17 +20,24 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Button
 import androidx.annotation.MainThread
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.flowWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewModelScope
+import app.android.issue5101.databinding.FragmentLoginBinding
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 import java.lang.ref.WeakReference
-import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.async
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
 class LoginFragment : Fragment(), LoggerNameAndIdProvider {
@@ -49,8 +56,7 @@ class LoginFragment : Fragment(), LoggerNameAndIdProvider {
 
   private val viewModel: MyViewModel by viewModels()
 
-  private var loginButton: Button? = null
-  private var spinner: View? = null
+  private var viewBinding: FragmentLoginBinding? = null
 
   override fun onAttach(context: Context) {
     logger.onAttach(context)
@@ -89,21 +95,28 @@ class LoginFragment : Fragment(), LoggerNameAndIdProvider {
       savedInstanceState: Bundle?
   ): View {
     logger.onCreateView()
-    val view = inflater.inflate(R.layout.fragment_login, container, false)
+    val binding = FragmentLoginBinding.inflate(inflater, container, false).also { viewBinding = it }
+    return binding.root
+  }
 
-    loginButton =
-        view.findViewById<Button>(R.id.login).apply {
-          setOnClickListener { handleLoginButtonClick() }
-        }
-    spinner = view.findViewById(R.id.spinner)
+  override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+    logger.onViewCreated()
+    super.onViewCreated(view, savedInstanceState)
+    viewBinding!!.login.setOnClickListener { handleLoginButtonClick() }
 
-    return view
+    if (savedInstanceState === null) {
+      updateUi(viewModel.isLoginInProgress.value)
+    }
+    viewLifecycleOwner.lifecycleScope.launch {
+      viewModel.isLoginInProgress
+          .flowWithLifecycle(viewLifecycleOwner.lifecycle, Lifecycle.State.STARTED)
+          .collect { updateUi(it) }
+    }
   }
 
   override fun onDestroyView() {
     logger.onDestroyView()
-    spinner = null
-    loginButton = null
+    viewBinding = null
     super.onDestroyView()
   }
 
@@ -120,7 +133,6 @@ class LoginFragment : Fragment(), LoggerNameAndIdProvider {
   override fun onResume() {
     logger.onResume()
     super.onResume()
-    updateUi()
   }
 
   override fun onPause() {
@@ -129,34 +141,45 @@ class LoginFragment : Fragment(), LoggerNameAndIdProvider {
   }
 
   @MainThread
-  private fun updateUi() {
+  private fun updateUi(isLoginInProgress: Boolean) {
     logger.log { "updateUi()" }
-    if (viewModel.isLoginInProgress) {
-      loginButton?.isEnabled = false
-      spinner?.visibility = View.VISIBLE
+    val loginButton = viewBinding!!.login
+    val spinner = viewBinding!!.spinner
+    if (isLoginInProgress) {
+      loginButton.isEnabled = false
+      spinner.visibility = View.VISIBLE
     } else {
-      loginButton?.isEnabled = true
-      spinner?.visibility = View.GONE
+      loginButton.isEnabled = true
+      spinner.visibility = View.GONE
     }
   }
 
   @MainThread
   private fun handleLoginButtonClick() {
     logger.log { "handleLoginButtonClick()" }
-    viewModel.startLogin()
-    updateUi()
+    viewModel.login()
   }
 
   class MyViewModel : ViewModel() {
     private val firebaseAuth = Firebase.auth
-    private var loginJob: Deferred<Unit>? = null
 
-    val isLoginInProgress: Boolean
-      get() = loginJob?.isActive ?: false
+    private val loginJob = MutableStateFlow<Job?>(null)
+    val isLoginInProgress =
+        loginJob
+            .map { it?.isActive ?: false }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
-    fun startLogin() {
-      check(!isLoginInProgress) { "must not be called when isLoginInProgress=$isLoginInProgress" }
-      loginJob = viewModelScope.async { firebaseAuth.signInAnonymously().await() }
+    @MainThread
+    fun login() {
+      val oldJob = loginJob.value
+      if (oldJob === null || !oldJob.isActive) {
+        viewModelScope
+            .launch { firebaseAuth.signInAnonymously().await() }
+            .also { job ->
+              loginJob.value = job
+              job.invokeOnCompletion { loginJob.compareAndSet(job, null) }
+            }
+      }
     }
   }
 }

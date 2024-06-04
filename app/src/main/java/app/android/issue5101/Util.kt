@@ -15,9 +15,7 @@
  */
 package app.android.issue5101
 
-import java.util.concurrent.atomic.AtomicLong
 import kotlin.random.Random
-import kotlin.random.nextLong
 
 /**
  * Generates and returns a string containing random alphanumeric characters.
@@ -40,24 +38,3 @@ fun Random.nextAlphanumericString(length: Int): String {
 // '1', 'l', and 'i'.
 @Suppress("SpellCheckingInspection")
 private const val ALPHANUMERIC_ALPHABET = "23456789abcdefghjkmnpqrstvwxyz"
-
-private val nextSequenceId = AtomicLong(Random.nextLong(1000000000000..9999999999999))
-
-/**
- * Returns a positive number on each invocation, with each returned value being strictly greater
- * than any value previously returned in this process.
- *
- * This function is thread-safe and may be called concurrently by multiple threads and/or
- * coroutines.
- */
-internal fun nextSequenceNumber(): Long {
-  return nextSequenceId.incrementAndGet()
-}
-
-internal class NullableReference<T>(val ref: T? = null) {
-  override fun equals(other: Any?) = (other is NullableReference<*>) && other.ref == ref
-
-  override fun hashCode() = ref?.hashCode() ?: 0
-
-  override fun toString() = ref?.toString() ?: "null"
-}
