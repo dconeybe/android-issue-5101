@@ -16,56 +16,51 @@
 package app.android.issue5101
 
 import android.os.Bundle
+import androidx.activity.viewModels
 import androidx.annotation.MainThread
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.flowWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.viewModelScope
+import app.android.issue5101.databinding.ActivityMainBinding
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.auth
 import java.lang.ref.WeakReference
+import kotlin.random.Random
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 
 class MainActivity : AppCompatActivity() {
 
   private val logger = Logger("MainActivity")
-  private val weakThis = WeakReference(this)
-  private val firebaseAuthStateListener = FirebaseAuthStateListenerImpl(weakThis)
-  private val firebaseAuthIdTokenListener = FirebaseAuthIdTokenListenerImpl(weakThis)
-
-  private lateinit var firebaseAuth: FirebaseAuth
+  private val viewModel: MyViewModel by viewModels()
 
   override fun onCreate(savedInstanceState: Bundle?) {
     logger.onCreate(savedInstanceState)
     super.onCreate(savedInstanceState)
 
-    setContentView(R.layout.activity_main)
+    val binding = ActivityMainBinding.inflate(layoutInflater)
+    setContentView(binding.root)
 
-    firebaseAuth = Firebase.auth
-    firebaseAuth.addAuthStateListener(firebaseAuthStateListener)
-    firebaseAuth.addIdTokenListener(firebaseAuthIdTokenListener)
-
-    logger.log { "onCreate() savedInstanceState===null: ${savedInstanceState === null}" }
     if (savedInstanceState === null) {
-      val currentUser = firebaseAuth.currentUser
-      logger.log { "onCreate() currentUser=$currentUser" }
-      val (initialFragment, initialFragmentTag) =
-          if (currentUser === null) Pair(LoginFragment(), FRAGMENT_TAG_LOGIN)
-          else Pair(FirestoreFragment(), FRAGMENT_TAG_FIRESTORE)
-      logger.log {
-        "onCreate() adding fragment ${initialFragment.loggerNameWithId} with tag=$initialFragmentTag"
-      }
-      supportFragmentManager
-          .beginTransaction()
-          .add(R.id.bsrzamz8rn, initialFragment, initialFragmentTag)
-          .commit()
+      updateUi(viewModel.currentUser.value)
+    }
+    lifecycleScope.launch {
+      viewModel.currentUser
+          .flowWithLifecycle(lifecycle, Lifecycle.State.STARTED)
+          .collect { updateUi(it) }
     }
   }
 
   override fun onDestroy() {
     logger.onDestroy()
-    weakThis.clear()
-    firebaseAuth.removeAuthStateListener(firebaseAuthStateListener)
-    firebaseAuth.removeIdTokenListener(firebaseAuthIdTokenListener)
     super.onDestroy()
   }
 
@@ -92,7 +87,6 @@ class MainActivity : AppCompatActivity() {
   override fun onResume() {
     logger.onResume()
     super.onResume()
-    updateUi()
   }
 
   override fun onPause() {
@@ -101,8 +95,7 @@ class MainActivity : AppCompatActivity() {
   }
 
   @MainThread
-  private fun updateUi() {
-    val currentUser = firebaseAuth.currentUser
+  private fun updateUi(currentUser: FirebaseUser?) {
     val loginFragment = supportFragmentManager.findFragmentByTag(FRAGMENT_TAG_LOGIN)
     val firestoreFragment = supportFragmentManager.findFragmentByTag(FRAGMENT_TAG_FIRESTORE)
 
@@ -146,44 +139,79 @@ class MainActivity : AppCompatActivity() {
         .commit()
   }
 
-  @MainThread
-  private fun onFirebaseAuthStateChanged(listener: FirebaseAuthStateListenerImpl) {
-    logger.log { "onFirebaseAuthStateChanged()" }
-    require(listener === firebaseAuthStateListener)
-    if (lifecycle.currentState == Lifecycle.State.RESUMED) {
-      updateUi()
-    }
-  }
-
-  private class FirebaseAuthStateListenerImpl(val activity: WeakReference<MainActivity>) :
-      FirebaseAuth.AuthStateListener {
-
-    private val logger =
-        Logger("FirebaseAuthStateListenerImpl").apply {
-          log { "Created by ${activity.get()?.logger?.nameWithId}" }
-        }
-
-    override fun onAuthStateChanged(auth: FirebaseAuth) {
-      logger.log { "onAuthStateChanged()" }
-      activity.get()?.runOnUiThread { activity.get()?.onFirebaseAuthStateChanged(this) }
-    }
-  }
-
-  private class FirebaseAuthIdTokenListenerImpl(val activity: WeakReference<MainActivity>) :
-      FirebaseAuth.IdTokenListener {
-
-    private val logger =
-        Logger("FirebaseAuthIdTokenListenerImpl").apply {
-          log { "Created by ${activity.get()?.logger?.nameWithId}" }
-        }
-
-    override fun onIdTokenChanged(auth: FirebaseAuth) {
-      logger.log { "onIdTokenChanged()" }
-    }
-  }
-
   private companion object {
     const val FRAGMENT_TAG_LOGIN = "tfqapd9z35.LoginFragment"
     const val FRAGMENT_TAG_FIRESTORE = "dn478zdc25.FirestoreFragment"
+  }
+
+  class MyViewModel : ViewModel() {
+    private val logger = Logger("FirestoreFragment.MyViewModel").apply { log { "created" } }
+    private val weakThis = WeakReference(this)
+    private val firebaseAuthStateListener = FirebaseAuthStateListenerImpl(weakThis)
+    private val firebaseAuthIdTokenListener = FirebaseAuthIdTokenListenerImpl(weakThis)
+    private val firebaseAuth = Firebase.auth
+
+    private val _currentUser = MutableStateFlow<FirebaseUser?>(null)
+    val currentUser = _currentUser.asStateFlow()
+
+    init {
+      firebaseAuth.addAuthStateListener(firebaseAuthStateListener)
+      firebaseAuth.addIdTokenListener(firebaseAuthIdTokenListener)
+    }
+
+    override fun onCleared() {
+      logger.onCleared()
+      weakThis.clear()
+      firebaseAuth.removeIdTokenListener(firebaseAuthIdTokenListener)
+      firebaseAuth.removeAuthStateListener(firebaseAuthStateListener)
+      super.onCleared()
+    }
+
+    private class FirebaseAuthStateListenerImpl(val viewModel: WeakReference<MyViewModel>) :
+        FirebaseAuth.AuthStateListener {
+
+      private val logger =
+          Logger("FirebaseAuthStateListenerImpl").apply {
+            log { "Created by ${viewModel.get()?.logger?.nameWithId}" }
+          }
+
+      override fun onAuthStateChanged(auth: FirebaseAuth) {
+        val currentUser = auth.currentUser
+        logger.log { "onAuthStateChanged(): currentUser=$currentUser" }
+        viewModel.get()?._currentUser?.value = currentUser
+      }
+    }
+
+    private class FirebaseAuthIdTokenListenerImpl(val viewModel: WeakReference<MyViewModel>) :
+        FirebaseAuth.IdTokenListener {
+
+      private val logger =
+          Logger("FirebaseAuthIdTokenListenerImpl").apply {
+            log { "Created by ${viewModel.get()?.logger?.nameWithId}" }
+          }
+
+      override fun onIdTokenChanged(auth: FirebaseAuth) {
+        val sequenceNumber = nextSequenceNumber()
+        val callbackId = "oitc${Random.nextAlphanumericString(length=8)}"
+        val currentUser = auth.currentUser
+        val logPrefix =
+            "onIdTokenChanged()" +
+                " sequenceNumber=$sequenceNumber" +
+                " callbackId=$callbackId" +
+                " currentUser=$currentUser"
+        logger.log { logPrefix }
+
+        if (currentUser !== null) {
+          viewModel.get()?.viewModelScope?.launch {
+            val result = currentUser.getIdToken(false).await()
+            logger.log { logPrefix + " token=${result.token}" }
+            logger.log { logPrefix + " authTimestamp=${result.authTimestamp}" }
+            logger.log { logPrefix + " issuedAtTimestamp=${result.issuedAtTimestamp}" }
+            logger.log { logPrefix + " expirationTimestamp=${result.expirationTimestamp}" }
+            logger.log { logPrefix + " signInProvider=${result.signInProvider}" }
+          }
+        }
+      }
+    }
   }
 }

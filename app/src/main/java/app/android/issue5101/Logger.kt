@@ -68,6 +68,10 @@ fun Logger.onDetach() {
   log { "onDetach()" }
 }
 
+fun Logger.onCleared() {
+  log { "onCleared()" }
+}
+
 fun Logger.onCreate() {
   log { "onCreate()" }
 }

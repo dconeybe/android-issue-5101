@@ -59,6 +59,16 @@ class FirestoreFragment : Fragment(), LoggerNameAndIdProvider {
 
   private var logTextView: TextView? = null
 
+  override fun onAttach(context: Context) {
+    logger.onAttach(context)
+    super.onAttach(context)
+  }
+
+  override fun onDetach() {
+    logger.onDetach()
+    super.onDetach()
+  }
+
   override fun onCreate(savedInstanceState: Bundle?) {
     logger.onCreate(savedInstanceState)
     super.onCreate(savedInstanceState)
@@ -68,16 +78,6 @@ class FirestoreFragment : Fragment(), LoggerNameAndIdProvider {
     logger.onDestroy()
     weakThis.clear()
     super.onDestroy()
-  }
-
-  override fun onAttach(context: Context) {
-    logger.onAttach(context)
-    super.onAttach(context)
-  }
-
-  override fun onDetach() {
-    logger.onDetach()
-    super.onDetach()
   }
 
   override fun onViewStateRestored(savedInstanceState: Bundle?) {
@@ -102,6 +102,9 @@ class FirestoreFragment : Fragment(), LoggerNameAndIdProvider {
     view.findViewById<Button>(R.id.add_item).setOnClickListener { handleAddItemButtonClick() }
     logTextView = view.findViewById(R.id.log)
 
+    if (savedInstanceState === null) {
+      updateUi(viewModel.snapshot.value)
+    }
     viewLifecycleOwner.lifecycleScope.launch {
       viewModel.snapshot
           .flowWithLifecycle(viewLifecycleOwner.lifecycle, Lifecycle.State.RESUMED)
@@ -171,6 +174,7 @@ class FirestoreFragment : Fragment(), LoggerNameAndIdProvider {
         collectionReference.addSnapshotListener(querySnapshotListener)
 
     override fun onCleared() {
+      logger.onCleared()
       weakThis.clear()
       collectionReferenceListenerRegistration.remove()
       super.onCleared()
@@ -178,6 +182,7 @@ class FirestoreFragment : Fragment(), LoggerNameAndIdProvider {
 
     @AnyThread
     fun addDocument() {
+      logger.log { "addDocument()" }
       val documentReference = collectionReference.document()
       val data = Random.nextAlphanumericString(length = 20)
       logger.log { "addDocument() Creating document ${documentReference.path} with data: $data" }

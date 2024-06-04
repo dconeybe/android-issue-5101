@@ -52,6 +52,16 @@ class LoginFragment : Fragment(), LoggerNameAndIdProvider {
   private var loginButton: Button? = null
   private var spinner: View? = null
 
+  override fun onAttach(context: Context) {
+    logger.onAttach(context)
+    super.onAttach(context)
+  }
+
+  override fun onDetach() {
+    logger.onDetach()
+    super.onDetach()
+  }
+
   override fun onCreate(savedInstanceState: Bundle?) {
     logger.onCreate(savedInstanceState)
     super.onCreate(savedInstanceState)
@@ -61,16 +71,6 @@ class LoginFragment : Fragment(), LoggerNameAndIdProvider {
     logger.onDestroy()
     weakThis.clear()
     super.onDestroy()
-  }
-
-  override fun onAttach(context: Context) {
-    logger.onAttach(context)
-    super.onAttach(context)
-  }
-
-  override fun onDetach() {
-    logger.onDetach()
-    super.onDetach()
   }
 
   override fun onViewStateRestored(savedInstanceState: Bundle?) {
