@@ -39,6 +39,7 @@ import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.firestore.firestore
 import java.lang.ref.WeakReference
+import java.time.Instant
 import kotlin.random.Random
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -166,9 +167,11 @@ class FirestoreFragment : Fragment(), LoggerNameAndIdProvider {
       append("Collection: ${collectionReference.path}")
       if (snapshot !== null) {
         append('\n')
+        append("Time: ${snapshot.time}")
+        append('\n')
         append("Sequence Number: ${snapshot.sequenceNumber}")
         append('\n')
-        append("Instance ID: ${snapshot.instanceId}")
+        append("Snapshot ID: ${snapshot.snapshotId}")
         append('\n')
 
         append("Num Documents: ")
@@ -262,8 +265,9 @@ class FirestoreFragment : Fragment(), LoggerNameAndIdProvider {
     }
 
     data class SnapshotInfo(
+        val time: Instant,
         val sequenceNumber: Long,
-        val instanceId: String,
+        val snapshotId: String,
         val snapshot: QuerySnapshot?,
         val error: FirebaseFirestoreException?
     )
@@ -277,14 +281,15 @@ class FirestoreFragment : Fragment(), LoggerNameAndIdProvider {
           }
 
       override fun onEvent(snapshot: QuerySnapshot?, error: FirebaseFirestoreException?) {
-        logger.log { "onEvent(snapshot=$snapshot, error=$error)" }
+        val time = Instant.now()
+        val snapshotId = "spst${Random.nextAlphanumericString(length = 8)}"
+        logger.log { "onEvent(snapshot=$snapshot, error=$error) snapshotId=$snapshotId" }
         val viewModelScope = viewModel.get()?.viewModelScope ?: return
         val sequenceNumberService = viewModel.get()?.sequenceNumberService ?: return
         viewModelScope.launch {
-          val instanceId = "spst${Random.nextAlphanumericString(length = 8)}"
           val sequenceNumber =
-              sequenceNumberService.binder.filterNotNull().first().nextSequenceNumber(instanceId)
-          val snapshotInfo = SnapshotInfo(sequenceNumber, instanceId, snapshot, error)
+              sequenceNumberService.binder.filterNotNull().first().nextSequenceNumber(snapshotId)
+          val snapshotInfo = SnapshotInfo(time, sequenceNumber, snapshotId, snapshot, error)
           viewModel.get()?._snapshot?.value = snapshotInfo
         }
       }
