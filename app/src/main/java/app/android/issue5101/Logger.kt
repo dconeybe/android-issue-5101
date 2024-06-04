@@ -56,6 +56,10 @@ fun Logger.log(block: () -> String) {
   Log.i("Issue5101", "${nameWithId}: ${block()}")
 }
 
+fun Logger.warn(throwable: Throwable, block: () -> String) {
+  Log.w("Issue5101", "${nameWithId}: ${block()}", throwable)
+}
+
 fun Logger.onCreate(savedInstanceState: Bundle?) {
   log { "onCreate(savedInstanceState=$savedInstanceState)" }
 }

@@ -45,6 +45,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 
 class FirestoreFragment : Fragment(), LoggerNameAndIdProvider {
 
@@ -101,8 +102,9 @@ class FirestoreFragment : Fragment(), LoggerNameAndIdProvider {
 
     viewBinding =
         FragmentFirestoreBinding.inflate(inflater, container, false).apply {
-          logout.setOnClickListener { handleLogoutButtonClick() }
-          addItem.setOnClickListener { handleAddItemButtonClick() }
+          logout.setOnClickListener { viewModel.logout() }
+          addItem.setOnClickListener { viewModel.addDocument() }
+          deleteItem.setOnClickListener { viewModel.deleteDocument() }
         }
 
     if (savedInstanceState === null) {
@@ -146,13 +148,11 @@ class FirestoreFragment : Fragment(), LoggerNameAndIdProvider {
   @MainThread
   private fun handleLogoutButtonClick() {
     logger.log { "handleLogoutButtonClick()" }
-    viewModel.firebaseAuth.signOut()
   }
 
   @MainThread
   private fun handleAddItemButtonClick() {
     logger.log { "handleAddItemButtonClick()" }
-    viewModel.addDocument()
   }
 
   @MainThread
@@ -218,12 +218,47 @@ class FirestoreFragment : Fragment(), LoggerNameAndIdProvider {
     }
 
     @AnyThread
+    fun logout() {
+      logger.log { "logout()" }
+      firebaseAuth.signOut()
+    }
+
+    @AnyThread
     fun addDocument() {
       logger.log { "addDocument()" }
       val documentReference = collectionReference.document()
       val data = Random.nextAlphanumericString(length = 20)
       logger.log { "addDocument() Creating document ${documentReference.path} with data: $data" }
       documentReference.set(mapOf("data" to Random.nextAlphanumericString(length = 20)))
+    }
+
+    @AnyThread
+    fun deleteDocument() {
+      val operationId = "dd" + Random.nextAlphanumericString(length = 8)
+      logger.log { "deleteDocument() operationId=$operationId" }
+      viewModelScope.launch {
+        val snapshotResult = collectionReference.get().runCatching { await() }
+        val snapshot =
+            snapshotResult.fold(
+                onSuccess = { it },
+                onFailure = {
+                  logger.warn(it) { "deleteDocument() operationId=$operationId get failed" }
+                  null
+                },
+            )
+
+        if (snapshot !== null && snapshot.size() > 0) {
+          val documentReference = snapshot.documents.random().reference
+          logger.log {
+            "deleteDocument() operationId=$operationId" +
+                " deleting document ${documentReference.path}"
+          }
+          val deleteResult = documentReference.delete().runCatching { await() }
+          deleteResult.onFailure {
+            logger.warn(it) { "deleteDocument() operationId=$operationId delete failed" }
+          }
+        }
+      }
     }
 
     data class SnapshotInfo(
