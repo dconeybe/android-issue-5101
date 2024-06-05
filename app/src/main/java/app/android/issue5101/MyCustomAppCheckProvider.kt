@@ -15,26 +15,73 @@
  */
 package app.android.issue5101
 
+import com.google.android.gms.tasks.Task
+import com.google.android.gms.tasks.TaskCompletionSource
+import com.google.firebase.FirebaseApp
+import com.google.firebase.appcheck.AppCheckProvider
+import com.google.firebase.appcheck.AppCheckProviderFactory
+import com.google.firebase.appcheck.AppCheckToken
+import java.net.Socket
+import java.time.Instant
 import kotlin.random.Random
+import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.async
 
-/**
- * Generates and returns a string containing random alphanumeric characters.
- *
- * The characters returned are taken from the set of characters comprising of the 10 numeric digits
- * and the 26 lowercase English characters.
- *
- * @param length the number of random characters to generate and include in the returned string;
- *   must be greater than or equal to zero.
- * @return a string containing the given number of random alphanumeric characters.
- * @hide
- */
-fun Random.nextAlphanumericString(length: Int): String {
-  require(length >= 0) { "invalid length: $length" }
-  return (0 until length).map { ALPHANUMERIC_ALPHABET.random(this) }.joinToString(separator = "")
+class MyCustomAppCheckToken(
+    private val token: String,
+    private val expiration: Long,
+) : AppCheckToken() {
+  override fun getToken(): String = token
+
+  override fun getExpireTimeMillis(): Long = expiration
 }
 
-// The set of characters comprising of the 10 numeric digits and the 26 lowercase letters of the
-// English alphabet with some characters removed that can look similar in different fonts, like
-// '1', 'l', and 'i'.
-@Suppress("SpellCheckingInspection")
-private const val ALPHANUMERIC_ALPHABET = "23456789abcdefghjkmnpqrstvwxyz"
+class MyCustomAppCheckProvider : AppCheckProvider {
+
+  private val logger = Logger("MyCustomAppCheckProvider").apply { log { "created" } }
+
+  override fun getToken(): Task<AppCheckToken> {
+    val requestId = "acrid" + Random.nextAlphanumericString(length = 8)
+    val taskCompletionSource = TaskCompletionSource<AppCheckToken>()
+
+    @OptIn(DelicateCoroutinesApi::class)
+    val job =
+        GlobalScope.async(Dispatchers.IO) {
+          logger.log { "$requestId Getting AppCheck Token from server $HOST:$PORT" }
+          val tokenBytes =
+              Socket(HOST, PORT).use { socket -> readAllBytes(socket.getInputStream()) }
+          val token = String(tokenBytes)
+          logger.log { "$requestId Got AppCheck Token: $token" }
+          taskCompletionSource.trySetResult(
+              MyCustomAppCheckToken(
+                  token = token,
+                  expiration = Instant.now().toEpochMilli() + MILLIS_FOR_30_MINUTES - 60000L))
+        }
+
+    job.invokeOnCompletion { throwable ->
+      if (throwable is Exception) {
+        taskCompletionSource.trySetException(throwable)
+      } else if (throwable !== null) {
+        taskCompletionSource.trySetException(Exception(throwable))
+      }
+    }
+
+    return taskCompletionSource.task
+  }
+
+  private companion object {
+    const val HOST = "10.0.2.2"
+    const val PORT = 9392
+    const val MILLIS_PER_SECOND = 1000
+    const val MILLIS_PER_MINUTE = MILLIS_PER_SECOND * 60
+    const val MILLIS_FOR_30_MINUTES = MILLIS_PER_MINUTE * 30
+  }
+}
+
+class MyCustomAppCheckProviderFactory : AppCheckProviderFactory {
+  override fun create(firebaseApp: FirebaseApp): AppCheckProvider {
+    return MyCustomAppCheckProvider()
+  }
+}

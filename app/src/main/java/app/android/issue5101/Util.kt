@@ -15,6 +15,8 @@
  */
 package app.android.issue5101
 
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import kotlin.random.Random
 
 /**
@@ -38,3 +40,15 @@ fun Random.nextAlphanumericString(length: Int): String {
 // '1', 'l', and 'i'.
 @Suppress("SpellCheckingInspection")
 private const val ALPHANUMERIC_ALPHABET = "23456789abcdefghjkmnpqrstvwxyz"
+
+fun readAllBytes(inputStream: InputStream): ByteArray {
+  val buffer = ByteArray(8192) // 8 KB buffer for efficient reading
+  val outputStream = ByteArrayOutputStream()
+
+  var bytesRead: Int
+  while (inputStream.read(buffer).also { bytesRead = it } > 0) {
+    outputStream.write(buffer, 0, bytesRead)
+  }
+
+  return outputStream.toByteArray()
+}
