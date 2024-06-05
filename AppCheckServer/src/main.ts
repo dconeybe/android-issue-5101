@@ -19,7 +19,9 @@ const TCP_PORT = 9392;
 // The "App ID" of the "com.google.dconeybe" Android app from Firebase console.
 const APP_ID = '1:35775074661:android:bda3aad6830ebc96c4d18c';
 
-const MILLIS_FOR_30_MINUTES = 1000 * 60 * 60;
+const MILLIS_PER_SECOND = 1000;
+const MILLIS_PER_MINUTE = MILLIS_PER_SECOND * 60;
+const MILLIS_FOR_30_MINUTES = MILLIS_PER_MINUTE * 30;
 
 async function main() {
   logger.info('Initializing firebase-admin sdk');
