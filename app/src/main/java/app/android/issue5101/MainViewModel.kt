@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.android.gms.tasks.Task
 import com.google.firebase.Firebase
+import com.google.firebase.appcheck.appCheck
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GetTokenResult
@@ -29,6 +30,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
   init {
     FirebaseFirestore.setLoggingEnabled(true)
+    Firebase.appCheck.installAppCheckProviderFactory(MyCustomAppCheckProviderFactory())
     firebaseAuth.addAuthStateListener(firebaseAuthStateListener)
     firebaseAuth.addIdTokenListener(firebaseAuthIdTokenListener)
   }

@@ -84,12 +84,15 @@ function handleConnection(appCheck: FirebaseAppCheck, socket: Socket) {
   appCheck
     .createToken(APP_ID, { ttlMillis: MILLIS_FOR_30_MINUTES })
     .then(token => {
+      const resultData = {
+        token: token.token,
+        ttlMillis: token.ttlMillis
+      };
       logger.info(
-        `Generated AppCheck token for ${connectionId}: ` +
-          `token=${token.token}` +
-          `ttlMillis=${token.ttlMillis}`
+        `Generated AppCheck token for ${connectionId}:` +
+          ` ${JSON.stringify(resultData, undefined, 2)}`
       );
-      socket.end(token.token);
+      socket.end(JSON.stringify(resultData));
     })
     .catch(err => {
       socket.destroy(new Error(err));

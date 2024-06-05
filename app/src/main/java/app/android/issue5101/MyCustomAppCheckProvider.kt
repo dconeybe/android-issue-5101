@@ -28,17 +28,19 @@ import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.async
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
 
 class MyCustomAppCheckToken(
     private val token: String,
-    private val expiration: Long,
+    private val expireTimeMillis: Long,
 ) : AppCheckToken() {
   override fun getToken(): String = token
 
-  override fun getExpireTimeMillis(): Long = expiration
+  override fun getExpireTimeMillis(): Long = expireTimeMillis
 }
 
-class MyCustomAppCheckProvider : AppCheckProvider {
+class MyCustomAppCheckProvider(val host: String, val port: Int) : AppCheckProvider {
 
   private val logger = Logger("MyCustomAppCheckProvider").apply { log { "created" } }
 
@@ -47,20 +49,12 @@ class MyCustomAppCheckProvider : AppCheckProvider {
     val taskCompletionSource = TaskCompletionSource<AppCheckToken>()
 
     @OptIn(DelicateCoroutinesApi::class)
-    val job =
-        GlobalScope.async(Dispatchers.IO) {
-          logger.log { "$requestId Getting AppCheck Token from server $HOST:$PORT" }
-          val tokenBytes =
-              Socket(HOST, PORT).use { socket -> readAllBytes(socket.getInputStream()) }
-          val token = String(tokenBytes)
-          logger.log { "$requestId Got AppCheck Token: $token" }
-          taskCompletionSource.trySetResult(
-              MyCustomAppCheckToken(
-                  token = token,
-                  expiration = Instant.now().toEpochMilli() + MILLIS_FOR_30_MINUTES - 60000L))
-        }
+    val job = GlobalScope.async { taskCompletionSource.trySetResult(getAppCheckToken(requestId)) }
 
     job.invokeOnCompletion { throwable ->
+      if (throwable !== null) {
+        logger.warn(throwable) { "$requestId failed" }
+      }
       if (throwable is Exception) {
         taskCompletionSource.trySetException(throwable)
       } else if (throwable !== null) {
@@ -71,17 +65,31 @@ class MyCustomAppCheckProvider : AppCheckProvider {
     return taskCompletionSource.task
   }
 
-  private companion object {
-    const val HOST = "10.0.2.2"
-    const val PORT = 9392
-    const val MILLIS_PER_SECOND = 1000
-    const val MILLIS_PER_MINUTE = MILLIS_PER_SECOND * 60
-    const val MILLIS_FOR_30_MINUTES = MILLIS_PER_MINUTE * 30
+  private suspend fun getAppCheckToken(requestId: String): MyCustomAppCheckToken {
+    logger.log { "$requestId Getting AppCheck Token from server $host:$port" }
+    val json =
+        withContext(Dispatchers.IO) {
+          val responseBytes =
+              Socket(host, port).use { socket -> readAllBytes(socket.getInputStream()) }
+          val responseText = String(responseBytes)
+          logger.log { "$requestId Got AppCheck response: $responseText" }
+          JSONObject(responseText)
+        }
+
+    val token = json.getString("token")
+    val ttlMillis = json.getLong("ttlMillis")
+    val expireTimeMillis = Instant.now().toEpochMilli() + ttlMillis - 60000L
+    return MyCustomAppCheckToken(token, expireTimeMillis)
   }
 }
 
 class MyCustomAppCheckProviderFactory : AppCheckProviderFactory {
   override fun create(firebaseApp: FirebaseApp): AppCheckProvider {
-    return MyCustomAppCheckProvider()
+    return MyCustomAppCheckProvider(host = HOST, port = PORT)
+  }
+
+  companion object {
+    const val HOST = "10.0.2.2"
+    const val PORT = 9392
   }
 }
