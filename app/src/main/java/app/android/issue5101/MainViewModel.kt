@@ -9,6 +9,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GetTokenResult
 import com.google.firebase.auth.auth
+import com.google.firebase.firestore.FirebaseFirestore
 import java.lang.ref.WeakReference
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -27,6 +28,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   private val firebaseAuth = Firebase.auth
 
   init {
+    FirebaseFirestore.setLoggingEnabled(true)
     firebaseAuth.addAuthStateListener(firebaseAuthStateListener)
     firebaseAuth.addIdTokenListener(firebaseAuthIdTokenListener)
   }
