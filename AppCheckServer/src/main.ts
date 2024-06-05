@@ -1,10 +1,10 @@
-import type { Socket } from 'node:net';
+import type { AddressInfo, Socket } from 'node:net';
 import { Server } from 'node:net';
 
-import { appCheck as firebaseAppCheck } from 'firebase-admin';
 import type { App as FirebaseApp } from 'firebase-admin/app';
 import { initializeApp as initializeFirebaseApp } from 'firebase-admin/app';
 import type { AppCheck as FirebaseAppCheck } from 'firebase-admin/app-check';
+import { getAppCheck as getFirebaseAppCheck } from 'firebase-admin/app-check';
 import { Firestore } from 'firebase-admin/firestore';
 import * as signale from 'signale';
 
@@ -24,7 +24,7 @@ const MILLIS_FOR_30_MINUTES = 1000 * 60 * 60;
 async function main() {
   logger.info('Initializing firebase-admin sdk');
   const app = initializeFirebaseApp();
-  const appCheck = firebaseAppCheck(app);
+  const appCheck = getFirebaseAppCheck(app);
 
   await listFirestoreDocuments(app);
   await runServer(appCheck, TCP_PORT);
@@ -35,7 +35,9 @@ async function runServer(appCheck: FirebaseAppCheck, port: number) {
   const server = new Server();
 
   server.on('listening', () =>
-    logger.debug(`Server is now listening on ${server.address()}`)
+    logger.debug(
+      `Server is now listening on ${descriptionForAddress(server.address())}`
+    )
   );
   server.on('drop', data =>
     logger.warn(
@@ -109,6 +111,16 @@ async function listFirestoreDocuments(app: FirebaseApp) {
   logger.info(`Got ${snapshot.size} documents`);
   for (const document of snapshot.docs) {
     logger.note(document.ref.path);
+  }
+}
+
+function descriptionForAddress(address: AddressInfo | string | null): string {
+  if (address === null) {
+    return 'null';
+  } else if (typeof address === 'string') {
+    return address;
+  } else {
+    return `${address.address}:${address.port}`;
   }
 }
 
