@@ -33,8 +33,15 @@ async function main() {
 async function runServer(appCheck: FirebaseAppCheck, port: number) {
   logger.info(`Starting the TCP server on port ${port}`);
   const server = new Server();
-  attachLoggingHooks(server);
 
+  server.on('listening', () =>
+    logger.debug(`Server is now listening on ${server.address()}`)
+  );
+  server.on('drop', data =>
+    logger.warn(
+      `Server dropped connection from ${data?.remoteAddress}:${data?.remotePort}`
+    )
+  );
   server.on('connection', socket => handleConnection(appCheck, socket));
   server.listen({ host: '127.0.0.1', port });
 
@@ -45,62 +52,45 @@ async function runServer(appCheck: FirebaseAppCheck, port: number) {
 }
 
 function handleConnection(appCheck: FirebaseAppCheck, socket: Socket) {
-  logger.info('Generating AppCheck token');
-  const createTokenPromise = appCheck.createToken(
-    '1:35775074661:android:bda3aad6830ebc96c4d18c',
-    {
-      ttlMillis: MILLIS_FOR_30_MINUTES
-    }
+  const connectionId = `connection_id=${generateRandomAlphaString(8)}`;
+  logger.debug(
+    `Server got connection ${connectionId} ` +
+      `from ${socket.remoteAddress}:${socket.remotePort}`
   );
-
-  createTokenPromise.then(token => {
-    logger.info(`Generated AppCheck token`);
-    logger.note(`  token: ${token.token}`);
-    logger.note(`  ttlMillis: ${token.ttlMillis}`);
-    socket.end(token.token);
-  });
-
-  createTokenPromise.catch(err => {
-    socket.destroy(new Error(err));
-    logger.error(`appCheck.createToken() failed`, err);
-  });
-}
-
-function attachLoggingHooks(server: Server) {
-  server.on('listening', () =>
-    logger.debug(`Server is now listening on ${server.address()}`)
-  );
-
-  server.on('connection', socket => {
-    const connectionId = `con${generateRandomAlphaString(8)}`;
+  socket.on('close', () => {
     logger.debug(
-      `Server got connection ${connectionId} ` +
-        `from ${socket.remoteAddress}:${socket.remotePort}`
+      `Connection ${connectionId} from ` +
+        `${socket.remoteAddress}:${socket.remotePort} closed`
     );
-    socket.on('close', () => {
-      logger.debug(
-        `Connection ${connectionId} from ` +
-          `${socket.remoteAddress}:${socket.remotePort} closed`
-      );
-    });
-    socket.on('end', () => {
-      logger.debug(
-        `Connection ${connectionId} from ` +
-          `${socket.remoteAddress}:${socket.remotePort} ended`
-      );
-    });
-    socket.on('error', err => {
-      logger.warn(
-        `Connection ${connectionId} from ` +
-          `${socket.remoteAddress}:${socket.remotePort} ERRORED: ${err}`
-      );
-    });
   });
-  server.on('drop', data =>
+  socket.on('end', () => {
+    logger.debug(
+      `Connection ${connectionId} from ` +
+        `${socket.remoteAddress}:${socket.remotePort} ended`
+    );
+  });
+  socket.on('error', err => {
     logger.warn(
-      `Server dropped connection from ${data?.remoteAddress}:${data?.remotePort}`
-    )
-  );
+      `Connection ${connectionId} from ` +
+        `${socket.remoteAddress}:${socket.remotePort} ERRORED: ${err}`
+    );
+  });
+
+  logger.info(`Generating AppCheck token for ${connectionId}`);
+  appCheck
+    .createToken(APP_ID, { ttlMillis: MILLIS_FOR_30_MINUTES })
+    .then(token => {
+      logger.info(
+        `Generated AppCheck token for ${connectionId}: ` +
+          `token=${token.token}` +
+          `ttlMillis=${token.ttlMillis}`
+      );
+      socket.end(token.token);
+    })
+    .catch(err => {
+      socket.destroy(new Error(err));
+      logger.error(`appCheck.createToken() for ${connectionId} failed`, err);
+    });
 }
 
 function generateRandomAlphaString(length: number): string {
