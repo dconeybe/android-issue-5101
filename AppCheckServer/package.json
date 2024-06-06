@@ -1,0 +1,33 @@
+{
+  "name": "appcheckserver",
+  "version": "1.0.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "description": "",
+  "scripts": {
+    "prettier": "prettier --write .",
+    "prettier:check": "prettier --check .",
+    "lint": "eslint --fix .",
+    "lint:check": "eslint .",
+    "run": "ts-node src/main.ts",
+    "tsc": "tsc -b"
+  },
+  "type": "commonjs",
+  "dependencies": {
+    "firebase-admin": "^12.1.1",
+    "signale": "^1.4.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.4.0",
+    "@tsconfig/node20": "^20.1.4",
+    "@types/node": "^20.14.2",
+    "@types/signale": "^1.4.7",
+    "eslint": "^8.57.0",
+    "eslint-plugin-simple-import-sort": "^12.1.0",
+    "prettier": "^3.3.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5",
+    "typescript-eslint": "^7.12.0"
+  }
+}
