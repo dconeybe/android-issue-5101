@@ -36,3 +36,45 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
       - run: ./gradlew assembleDebug
+
+  tsc:
+    continue-on-error: false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: node install
+        uses: actions/setup-node@v3
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: AppCheckServer/package-lock.json
+      - run: npm clean-install
+      - run: npm run tsc
+
+  prettier:
+    continue-on-error: false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: node install
+        uses: actions/setup-node@v3
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: AppCheckServer/package-lock.json
+      - run: npm clean-install
+      - run: npm run prettier:check
+
+  eslint:
+    continue-on-error: false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: node install
+        uses: actions/setup-node@v3
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: AppCheckServer/package-lock.json
+      - run: npm clean-install
+      - run: npm run lint:check
