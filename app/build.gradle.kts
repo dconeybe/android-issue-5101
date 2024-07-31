@@ -10,7 +10,7 @@ android {
   compileSdk = 34
 
   defaultConfig {
-    applicationId = "app.android.issue5101"
+    applicationId = "com.google.dconeybe"
     minSdk = 30
     targetSdk = 34
     versionCode = 1
@@ -38,7 +38,6 @@ dependencies {
   implementation(libs.androidx.constraintlayout)
 
   implementation(platform(libs.firebase.bom))
-  implementation(libs.firebase.auth)
   implementation(libs.firebase.firestore)
   implementation(libs.firebase.appcheck)
 }

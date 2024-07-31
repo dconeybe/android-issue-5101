@@ -40,9 +40,7 @@ class MyCustomAppCheckToken(
   override fun getExpireTimeMillis(): Long = expireTimeMillis
 }
 
-class MyCustomAppCheckProvider(val host: String, val port: Int) : AppCheckProvider {
-
-  private val logger = Logger("MyCustomAppCheckProvider").apply { log { "created" } }
+class MyCustomAppCheckProvider(val app: MyApplication, val host: String, val port: Int) : AppCheckProvider {
 
   override fun getToken(): Task<AppCheckToken> {
     val requestId = "acrid" + Random.nextAlphanumericString(length = 8)
@@ -53,7 +51,7 @@ class MyCustomAppCheckProvider(val host: String, val port: Int) : AppCheckProvid
 
     job.invokeOnCompletion { throwable ->
       if (throwable !== null) {
-        logger.warn(throwable) { "$requestId failed" }
+        app.log("WARNING: $requestId failed: $throwable")
       }
       if (throwable is Exception) {
         taskCompletionSource.trySetException(throwable)
@@ -66,14 +64,25 @@ class MyCustomAppCheckProvider(val host: String, val port: Int) : AppCheckProvid
   }
 
   private suspend fun getAppCheckToken(requestId: String): MyCustomAppCheckToken {
-    logger.log { "$requestId Getting AppCheck Token from server $host:$port" }
+    app.log("$requestId Getting AppCheck Token from server $host:$port")
     val json =
         withContext(Dispatchers.IO) {
           val responseBytes =
               Socket(host, port).use { socket -> readAllBytes(socket.getInputStream()) }
           val responseText = String(responseBytes)
-          logger.log { "$requestId Got AppCheck response: $responseText" }
-          JSONObject(responseText)
+
+          val jsonParseResult = runCatching { JSONObject(responseText) }
+          jsonParseResult.fold(
+            onSuccess = {
+              val token = if (it.has("token")) it.get("token") else null
+              app.log("$requestId Got AppCheck response: token=${token.toString().ellipsized(13)}")
+            },
+            onFailure = {
+              app.log("$requestId Got AppCheck response: $responseText")
+            }
+          )
+
+          jsonParseResult.getOrThrow()
         }
 
     val token = json.getString("token")
@@ -83,9 +92,9 @@ class MyCustomAppCheckProvider(val host: String, val port: Int) : AppCheckProvid
   }
 }
 
-class MyCustomAppCheckProviderFactory : AppCheckProviderFactory {
+class MyCustomAppCheckProviderFactory(val app: MyApplication) : AppCheckProviderFactory {
   override fun create(firebaseApp: FirebaseApp): AppCheckProvider {
-    return MyCustomAppCheckProvider(host = HOST, port = PORT)
+    return MyCustomAppCheckProvider(app=app, host = HOST, port = PORT)
   }
 
   companion object {
