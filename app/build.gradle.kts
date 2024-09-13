@@ -6,10 +6,14 @@ plugins {
 }
 
 android {
+  // Do not change this value, as it must reflect the directory structure of the code.
+  // This is the package into which the "R" class is generated.
+  // Change "applicationId" below, if needed.
   namespace = "app.android.issue5101"
   compileSdk = 34
 
   defaultConfig {
+    // Optional: Change "applicationId" below to match a "package_name" in your google-services.json
     applicationId = "app.android.issue5101"
     minSdk = 30
     targetSdk = 34
@@ -38,7 +42,6 @@ dependencies {
   implementation(libs.androidx.constraintlayout)
 
   implementation(platform(libs.firebase.bom))
-  implementation(libs.firebase.auth)
   implementation(libs.firebase.firestore)
   implementation(libs.firebase.appcheck)
 }

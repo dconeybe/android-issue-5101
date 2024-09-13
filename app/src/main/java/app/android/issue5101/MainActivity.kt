@@ -16,121 +16,37 @@
 package app.android.issue5101
 
 import android.os.Bundle
+import android.widget.TextView
 import androidx.activity.viewModels
-import androidx.annotation.MainThread
 import androidx.appcompat.app.AppCompatActivity
-import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.flowWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import app.android.issue5101.databinding.ActivityMainBinding
-import com.google.firebase.auth.FirebaseUser
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
 
-  private val logger = Logger("MainActivity")
   private val viewModel: MainViewModel by viewModels()
+  private lateinit var logView: TextView
 
   override fun onCreate(savedInstanceState: Bundle?) {
-    logger.onCreate(savedInstanceState)
     super.onCreate(savedInstanceState)
+    println(viewModel)
 
     val binding = ActivityMainBinding.inflate(layoutInflater)
     setContentView(binding.root)
+    logView = binding.logs
 
-    if (savedInstanceState === null) {
-      updateUi(viewModel.firebaseUser.value)
-    }
+    val logsFlow = (application as MyApplication).logs
+    updateLogView(logsFlow.value)
+
     lifecycleScope.launch {
-      viewModel.firebaseUser.flowWithLifecycle(lifecycle, Lifecycle.State.STARTED).collect {
-        updateUi(it)
-      }
+      logsFlow.flowWithLifecycle(lifecycle, Lifecycle.State.STARTED).collect { updateLogView(it) }
     }
   }
 
-  override fun onDestroy() {
-    logger.onDestroy()
-    super.onDestroy()
-  }
-
-  override fun onRestoreInstanceState(savedInstanceState: Bundle) {
-    logger.onRestoreInstanceState()
-    super.onRestoreInstanceState(savedInstanceState)
-  }
-
-  override fun onSaveInstanceState(outState: Bundle) {
-    logger.onSaveInstanceState()
-    super.onSaveInstanceState(outState)
-  }
-
-  override fun onStart() {
-    logger.onStart()
-    super.onStart()
-  }
-
-  override fun onStop() {
-    logger.onStop()
-    super.onStop()
-  }
-
-  override fun onResume() {
-    logger.onResume()
-    super.onResume()
-  }
-
-  override fun onPause() {
-    logger.onPause()
-    super.onPause()
-  }
-
-  @MainThread
-  private fun updateUi(currentUser: FirebaseUser?) {
-    val loginFragment = supportFragmentManager.findFragmentByTag(FRAGMENT_TAG_LOGIN)
-    val firestoreFragment = supportFragmentManager.findFragmentByTag(FRAGMENT_TAG_FIRESTORE)
-
-    logger.log {
-      "updateUi()" +
-          " currentUser=$currentUser" +
-          " loginFragment=${loginFragment?.loggerNameWithId}" +
-          " firestoreFragment=${firestoreFragment?.loggerNameWithId}"
-    }
-
-    val showFragment: Fragment?
-    val hideFragment: Fragment?
-    val showFragmentTag: String
-    if (currentUser === null) {
-      showFragment = if (loginFragment === null) LoginFragment() else null
-      showFragmentTag = FRAGMENT_TAG_LOGIN
-      hideFragment = firestoreFragment
-    } else {
-      showFragment = if (firestoreFragment === null) FirestoreFragment() else null
-      showFragmentTag = FRAGMENT_TAG_FIRESTORE
-      hideFragment = loginFragment
-    }
-
-    logger.log {
-      "updateUi()" +
-          " showFragment=${showFragment?.loggerNameWithId}" +
-          " showFragmentTag=$showFragmentTag" +
-          " hideFragment=${hideFragment?.loggerNameWithId}"
-    }
-
-    supportFragmentManager
-        .beginTransaction()
-        .apply {
-          if (showFragment !== null) {
-            add(R.id.bsrzamz8rn, showFragment, showFragmentTag)
-          }
-          if (hideFragment !== null) {
-            remove(hideFragment)
-          }
-        }
-        .commit()
-  }
-
-  private companion object {
-    const val FRAGMENT_TAG_LOGIN = "tfqapd9z35.LoginFragment"
-    const val FRAGMENT_TAG_FIRESTORE = "dn478zdc25.FirestoreFragment"
+  private fun updateLogView(logs: List<String>) {
+    logView.text = logs.joinToString("\n")
   }
 }

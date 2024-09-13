@@ -1,5 +1,5 @@
 [versions]
-agp = "8.4.1"
+agp = "8.5.1"
 constraintlayout = "2.1.4"
 firebaseBom = "33.1.0"
 fragmentKtx = "1.7.1"
