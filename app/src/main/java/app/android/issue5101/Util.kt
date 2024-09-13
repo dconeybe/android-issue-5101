@@ -54,7 +54,7 @@ fun readAllBytes(inputStream: InputStream): ByteArray {
 }
 
 fun String.ellipsized(maxLength: Int): String {
-  require(maxLength >= 5) { "invalid maxLength: $maxLength (must be at least 5)"}
+  require(maxLength >= 5) { "invalid maxLength: $maxLength (must be at least 5)" }
   if (length <= maxLength) {
     return this
   }

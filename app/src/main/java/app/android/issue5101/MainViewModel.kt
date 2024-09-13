@@ -1,7 +1,6 @@
 package app.android.issue5101
 
 import android.app.Application
-import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import com.google.firebase.Firebase
 import com.google.firebase.appcheck.AppCheckToken
@@ -15,7 +14,7 @@ import com.google.firebase.firestore.firestore
 import java.lang.ref.WeakReference
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
-  private val weakThis = WeakReference(this).apply { addCloseable {clear()} }
+  private val weakThis = WeakReference(this).apply { addCloseable { clear() } }
   private val appCheckListenerImpl = AppCheckListenerImpl(weakThis)
   private val querySnapshotEventListenerImpl = QuerySnapshotEventListenerImpl(weakThis)
 
@@ -27,7 +26,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
       app.log("installAppCheckProviderFactory()")
       appCheck.installAppCheckProviderFactory(MyCustomAppCheckProviderFactory(app))
       appCheck.addAppCheckListener(appCheckListenerImpl)
-      addCloseable {appCheck.removeAppCheckListener(appCheckListenerImpl)}
+      addCloseable { appCheck.removeAppCheckListener(appCheckListenerImpl) }
     }
 
     Firebase.firestore.let { firestore ->
@@ -38,7 +37,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
   }
 
-  private class QuerySnapshotEventListenerImpl(private val viewModel: WeakReference<MainViewModel>) : EventListener<QuerySnapshot> {
+  private class QuerySnapshotEventListenerImpl(
+      private val viewModel: WeakReference<MainViewModel>
+  ) : EventListener<QuerySnapshot> {
     override fun onEvent(snapshot: QuerySnapshot?, error: FirebaseFirestoreException?) {
       val app = viewModel.get()?.getApplication<MyApplication>() ?: return
       if (error !== null) {
@@ -51,7 +52,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
   }
 
-  private class AppCheckListenerImpl(private val viewModel: WeakReference<MainViewModel>) : AppCheckListener {
+  private class AppCheckListenerImpl(private val viewModel: WeakReference<MainViewModel>) :
+      AppCheckListener {
     override fun onAppCheckTokenChanged(token: AppCheckToken) {
       val app = viewModel.get()?.getApplication<MyApplication>() ?: return
       app.log("onAppCheckTokenChanged() token=${token.token.ellipsized(maxLength = 13)}")

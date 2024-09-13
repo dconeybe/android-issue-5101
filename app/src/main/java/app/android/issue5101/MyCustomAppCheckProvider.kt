@@ -40,7 +40,8 @@ class MyCustomAppCheckToken(
   override fun getExpireTimeMillis(): Long = expireTimeMillis
 }
 
-class MyCustomAppCheckProvider(val app: MyApplication, val host: String, val port: Int) : AppCheckProvider {
+class MyCustomAppCheckProvider(val app: MyApplication, val host: String, val port: Int) :
+    AppCheckProvider {
 
   override fun getToken(): Task<AppCheckToken> {
     val requestId = "acrid" + Random.nextAlphanumericString(length = 8)
@@ -73,14 +74,12 @@ class MyCustomAppCheckProvider(val app: MyApplication, val host: String, val por
 
           val jsonParseResult = runCatching { JSONObject(responseText) }
           jsonParseResult.fold(
-            onSuccess = {
-              val token = if (it.has("token")) it.get("token") else null
-              app.log("$requestId Got AppCheck response: token=${token.toString().ellipsized(13)}")
-            },
-            onFailure = {
-              app.log("$requestId Got AppCheck response: $responseText")
-            }
-          )
+              onSuccess = {
+                val token = if (it.has("token")) it.get("token") else null
+                app.log(
+                    "$requestId Got AppCheck response: token=${token.toString().ellipsized(13)}")
+              },
+              onFailure = { app.log("$requestId Got AppCheck response: $responseText") })
 
           jsonParseResult.getOrThrow()
         }
@@ -94,7 +93,7 @@ class MyCustomAppCheckProvider(val app: MyApplication, val host: String, val por
 
 class MyCustomAppCheckProviderFactory(val app: MyApplication) : AppCheckProviderFactory {
   override fun create(firebaseApp: FirebaseApp): AppCheckProvider {
-    return MyCustomAppCheckProvider(app=app, host = HOST, port = PORT)
+    return MyCustomAppCheckProvider(app = app, host = HOST, port = PORT)
   }
 
   companion object {

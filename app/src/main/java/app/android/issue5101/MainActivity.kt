@@ -16,7 +16,6 @@
 package app.android.issue5101
 
 import android.os.Bundle
-import android.util.Log
 import android.widget.TextView
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
@@ -43,9 +42,7 @@ class MainActivity : AppCompatActivity() {
     updateLogView(logsFlow.value)
 
     lifecycleScope.launch {
-      logsFlow.flowWithLifecycle(lifecycle, Lifecycle.State.STARTED).collect {
-        updateLogView(it)
-      }
+      logsFlow.flowWithLifecycle(lifecycle, Lifecycle.State.STARTED).collect { updateLogView(it) }
     }
   }
 
