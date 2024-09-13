@@ -3,18 +3,15 @@ plugins {
   alias(libs.plugins.jetbrains.kotlin.android)
   alias(libs.plugins.gms.google.services)
   alias(libs.plugins.ktfmt.format)
+  alias(libs.plugins.kotlinx.serialization)
 }
 
 android {
-  // Do not change this value, as it must reflect the directory structure of the code.
-  // This is the package into which the "R" class is generated.
-  // Change "applicationId" below, if needed.
   namespace = "app.android.issue5101"
   compileSdk = 34
 
   defaultConfig {
-    // Optional: Change "applicationId" below to match a "package_name" in your google-services.json
-    applicationId = "app.android.issue5101"
+    applicationId = "com.google.dconeybe"
     minSdk = 30
     targetSdk = 34
     versionCode = 1
@@ -40,6 +37,12 @@ dependencies {
   implementation(libs.androidx.lifecycle.viewmodel.ktx)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.androidx.constraintlayout)
+  implementation(libs.ktor.client.core)
+  implementation(libs.ktor.client.okhttp)
+  implementation(libs.ktor.serialization.kotlinx.json)
+  implementation(libs.ktor.ktor.client.content.negotiation)
+  implementation(libs.kotlinx.serialization.core)
+  implementation(libs.kotlinx.serialization.json)
 
   implementation(platform(libs.firebase.bom))
   implementation(libs.firebase.firestore)

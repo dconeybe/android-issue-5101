@@ -21,15 +21,23 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.appcheck.AppCheckProvider
 import com.google.firebase.appcheck.AppCheckProviderFactory
 import com.google.firebase.appcheck.AppCheckToken
-import java.net.Socket
+import io.ktor.client.HttpClient
+import io.ktor.client.call.body
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.readBytes
+import io.ktor.http.ContentType
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
+import io.ktor.serialization.kotlinx.json.json
 import java.time.Instant
 import kotlin.random.Random
 import kotlinx.coroutines.DelicateCoroutinesApi
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.async
-import kotlinx.coroutines.withContext
-import org.json.JSONObject
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 
 class MyCustomAppCheckToken(
     private val token: String,
@@ -40,19 +48,32 @@ class MyCustomAppCheckToken(
   override fun getExpireTimeMillis(): Long = expireTimeMillis
 }
 
-class MyCustomAppCheckProvider(val app: MyApplication, val host: String, val port: Int) :
-    AppCheckProvider {
+class MyCustomAppCheckProvider(
+    firebaseApp: FirebaseApp,
+    val app: MyApplication,
+    val host: String,
+    val port: Int
+) : AppCheckProvider {
+
+  private val appId = firebaseApp.options.applicationId
+  private val projectId = firebaseApp.options.projectId ?: "<project ID unknown>"
 
   override fun getToken(): Task<AppCheckToken> {
     val requestId = "acrid" + Random.nextAlphanumericString(length = 8)
+    app.log("[requestId_$requestId] getToken() started")
     val taskCompletionSource = TaskCompletionSource<AppCheckToken>()
 
     @OptIn(DelicateCoroutinesApi::class)
-    val job = GlobalScope.async { taskCompletionSource.trySetResult(getAppCheckToken(requestId)) }
+    val job =
+        GlobalScope.async {
+          val token = getAppCheckToken(requestId)
+          app.log("[requestId_$requestId] getToken() completed successfully")
+          taskCompletionSource.trySetResult(token)
+        }
 
     job.invokeOnCompletion { throwable ->
       if (throwable !== null) {
-        app.log("WARNING: $requestId failed: $throwable")
+        app.log("[requestId_$requestId] WARNING: request failed: $throwable")
       }
       if (throwable is Exception) {
         taskCompletionSource.trySetException(throwable)
@@ -65,35 +86,44 @@ class MyCustomAppCheckProvider(val app: MyApplication, val host: String, val por
   }
 
   private suspend fun getAppCheckToken(requestId: String): MyCustomAppCheckToken {
-    app.log("$requestId Getting AppCheck Token from server $host:$port")
-    val json =
-        withContext(Dispatchers.IO) {
-          val responseBytes =
-              Socket(host, port).use { socket -> readAllBytes(socket.getInputStream()) }
-          val responseText = String(responseBytes)
+    val url = "http://$host:$port"
+    app.log("[requestId_$requestId] Getting AppCheck Token from $url")
 
-          val jsonParseResult = runCatching { JSONObject(responseText) }
-          jsonParseResult.fold(
-              onSuccess = {
-                val token = if (it.has("token")) it.get("token") else null
-                app.log(
-                    "$requestId Got AppCheck response: token=${token.toString().ellipsized(13)}")
-              },
-              onFailure = { app.log("$requestId Got AppCheck response: $responseText") })
+    @Serializable data class AppCheckTokenRequest(val appId: String, val projectId: String)
+    @Serializable data class AppCheckTokenResponse(val token: String, val ttlMillis: Long)
 
-          jsonParseResult.getOrThrow()
+    val client = HttpClient {
+      install(ContentNegotiation) {
+        json(
+            Json {
+              prettyPrint = false
+              ignoreUnknownKeys = true
+            })
+      }
+    }
+
+    val response =
+        client.post(url) {
+          contentType(ContentType.Application.Json)
+          setBody(AppCheckTokenRequest(appId = appId, projectId = projectId))
         }
 
-    val token = json.getString("token")
-    val ttlMillis = json.getLong("ttlMillis")
-    val expireTimeMillis = Instant.now().toEpochMilli() + ttlMillis - 60000L
-    return MyCustomAppCheckToken(token, expireTimeMillis)
+    if (response.status != HttpStatusCode.OK) {
+      val message = String(response.readBytes())
+      class UnexpectedHttpResponseCodeException(message: String) : Exception(message)
+      throw UnexpectedHttpResponseCodeException(
+          "unexpected http status code: ${response.status} ($message)")
+    }
+
+    val responseBody = response.body<AppCheckTokenResponse>()
+    val expireTimeMillis = Instant.now().toEpochMilli() + responseBody.ttlMillis - 60000L
+    return MyCustomAppCheckToken(responseBody.token, expireTimeMillis)
   }
 }
 
 class MyCustomAppCheckProviderFactory(val app: MyApplication) : AppCheckProviderFactory {
   override fun create(firebaseApp: FirebaseApp): AppCheckProvider {
-    return MyCustomAppCheckProvider(app = app, host = HOST, port = PORT)
+    return MyCustomAppCheckProvider(firebaseApp = firebaseApp, app = app, host = HOST, port = PORT)
   }
 
   companion object {

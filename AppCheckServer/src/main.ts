@@ -1,11 +1,11 @@
-import type { AddressInfo, Socket } from 'node:net';
-import { Server } from 'node:net';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 
 import type { App as FirebaseApp } from 'firebase-admin/app';
 import { initializeApp as initializeFirebaseApp } from 'firebase-admin/app';
 import type { AppCheck as FirebaseAppCheck } from 'firebase-admin/app-check';
 import { getAppCheck as getFirebaseAppCheck } from 'firebase-admin/app-check';
-import { Firestore } from 'firebase-admin/firestore';
+import { ReasonPhrases, StatusCodes } from 'http-status-codes';
 import * as signale from 'signale';
 
 const logger = new signale.Signale({
@@ -13,11 +13,6 @@ const logger = new signale.Signale({
     displayTimestamp: true
   }
 });
-
-const TCP_PORT = 9392;
-
-// The "App ID" of the "com.google.dconeybe" Android app from Firebase console.
-const APP_ID = '1:35775074661:android:bda3aad6830ebc96c4d18c';
 
 const MILLIS_PER_SECOND = 1000;
 const MILLIS_PER_MINUTE = MILLIS_PER_SECOND * 60;
@@ -27,77 +22,221 @@ async function main() {
   logger.info('Initializing firebase-admin sdk');
   const app = initializeFirebaseApp();
   const appCheck = getFirebaseAppCheck(app);
-
-  await listFirestoreDocuments(app);
-  await runServer(appCheck, TCP_PORT);
-}
-
-async function runServer(appCheck: FirebaseAppCheck, port: number) {
-  logger.info(`Starting the TCP server on port ${port}`);
-  const server = new Server();
-
-  server.on('listening', () =>
-    logger.debug(
-      `Server is now listening on ${descriptionForAddress(server.address())}`
-    )
-  );
-  server.on('drop', data =>
-    logger.warn(
-      `Server dropped connection from ${data?.remoteAddress}:${data?.remotePort}`
-    )
-  );
-  server.on('connection', socket => handleConnection(appCheck, socket));
-  server.listen({ host: '127.0.0.1', port });
-
-  await new Promise((resolve, reject) => {
-    server.on('close', resolve);
-    server.on('error', reject);
+  const projectId = projectIdFromFirebaseApp(app);
+  logger.info(`Initialized firebase-admin sdk for project: ${projectId}`);
+  await runServer({
+    appCheck,
+    projectId,
+    host: '127.0.0.1',
+    port: 9392
   });
 }
 
-function handleConnection(appCheck: FirebaseAppCheck, socket: Socket) {
-  const connectionId = `connection_id=${generateRandomAlphaString(8)}`;
-  logger.debug(
-    `Server got connection ${connectionId} ` +
-      `from ${socket.remoteAddress}:${socket.remotePort}`
-  );
-  socket.on('close', () => {
-    logger.debug(
-      `Connection ${connectionId} from ` +
-        `${socket.remoteAddress}:${socket.remotePort} closed`
-    );
-  });
-  socket.on('end', () => {
-    logger.debug(
-      `Connection ${connectionId} from ` +
-        `${socket.remoteAddress}:${socket.remotePort} ended`
-    );
-  });
-  socket.on('error', err => {
-    logger.warn(
-      `Connection ${connectionId} from ` +
-        `${socket.remoteAddress}:${socket.remotePort} ERRORED: ${err}`
-    );
-  });
+function projectIdFromFirebaseApp(app: FirebaseApp): string | undefined {
+  const options = app.options;
+  if (options.projectId) {
+    return options.projectId;
+  }
 
-  logger.info(`Generating AppCheck token for ${connectionId}`);
-  appCheck
-    .createToken(APP_ID, { ttlMillis: MILLIS_FOR_30_MINUTES })
-    .then(token => {
-      const resultData = {
-        token: token.token,
-        ttlMillis: token.ttlMillis
-      };
-      logger.info(
-        `Generated AppCheck token for ${connectionId}:` +
-          ` ${JSON.stringify(resultData, undefined, 2)}`
+  const credential = app.options.credential;
+  if (
+    credential &&
+    'projectId' in credential &&
+    typeof credential.projectId === 'string'
+  ) {
+    return credential.projectId;
+  }
+
+  return undefined;
+}
+
+async function runServer(settings: {
+  appCheck: FirebaseAppCheck;
+  host: string;
+  port: number;
+  projectId?: string | undefined;
+}) {
+  const { appCheck, host, port, projectId } = settings;
+
+  const httpServer = createServer((request, response) => {
+    const requestId = generateRandomAlphaString(6);
+    logger.info(
+      `[requestId_${requestId}] Request received from: ` +
+        descriptionForAddress(request.socket.address())
+    );
+
+    const respondWithError = (
+      code: number,
+      reason: string,
+      message: string
+    ) => {
+      logger.warn(
+        `[requestId_${requestId}] Request failed: ` +
+          `${code} (${reason}): ${message}`
       );
-      socket.end(JSON.stringify(resultData));
-    })
-    .catch(err => {
-      socket.destroy(new Error(err));
-      logger.error(`appCheck.createToken() for ${connectionId} failed`, err);
+      response.writeHead(code, reason, { 'Content-Type': 'text/plain' });
+      response.end(message);
+    };
+
+    const requestMethod = request.method;
+    if (requestMethod !== 'POST') {
+      respondWithError(
+        StatusCodes.METHOD_NOT_ALLOWED,
+        ReasonPhrases.METHOD_NOT_ALLOWED,
+        `Only POST requests are supported, but got: ${requestMethod}`
+      );
+      return;
+    }
+
+    const contentType = request.headers['content-type'];
+    if (contentType !== 'application/json') {
+      respondWithError(
+        StatusCodes.UNSUPPORTED_MEDIA_TYPE,
+        ReasonPhrases.UNSUPPORTED_MEDIA_TYPE,
+        `Content-Type must be application/json, but got: ${contentType}`
+      );
+      return;
+    }
+
+    const chunks: Array<Uint8Array> = [];
+    request.on('data', chunk => {
+      chunks.push(chunk);
     });
+
+    request.on('end', () => {
+      let bodyText: string;
+      try {
+        bodyText = Buffer.concat(chunks).toString();
+      } catch (e: unknown) {
+        respondWithError(
+          StatusCodes.BAD_REQUEST,
+          ReasonPhrases.BAD_REQUEST,
+          `Decoding the request body as UTF-8 failed: ${e}`
+        );
+        return;
+      }
+
+      logger.debug(`[requestId_${requestId}] Request body: ${bodyText}`);
+      let body: unknown;
+      try {
+        body = JSON.parse(bodyText);
+      } catch (e: unknown) {
+        respondWithError(
+          StatusCodes.BAD_REQUEST,
+          ReasonPhrases.BAD_REQUEST,
+          `Parsing the request body as JSON failed: ${e}`
+        );
+        return;
+      }
+
+      if (body === null) {
+        respondWithError(
+          StatusCodes.BAD_REQUEST,
+          ReasonPhrases.BAD_REQUEST,
+          `The JSON request body must be an object, but got: null`
+        );
+        return;
+      }
+      if (typeof body !== 'object') {
+        respondWithError(
+          StatusCodes.BAD_REQUEST,
+          ReasonPhrases.BAD_REQUEST,
+          `The JSON request body must be an object, but got: ${typeof body}`
+        );
+        return;
+      }
+
+      if (!('appId' in body)) {
+        respondWithError(
+          StatusCodes.BAD_REQUEST,
+          ReasonPhrases.BAD_REQUEST,
+          "The JSON request body must have an 'appId' property, " +
+            'but got properties: ' +
+            Object.getOwnPropertyNames(body).sort().join(', ')
+        );
+        return;
+      }
+
+      const appId = body['appId'];
+      if (typeof appId !== 'string') {
+        respondWithError(
+          StatusCodes.BAD_REQUEST,
+          ReasonPhrases.BAD_REQUEST,
+          `The 'appId' property of the JSON request body must be a string, ` +
+            `but got: ${typeof appId}`
+        );
+        return;
+      }
+
+      if (!('projectId' in body)) {
+        respondWithError(
+          StatusCodes.BAD_REQUEST,
+          ReasonPhrases.BAD_REQUEST,
+          "The JSON request body must have an 'projectId' property, " +
+            'but got properties: ' +
+            Object.getOwnPropertyNames(body).sort().join(', ')
+        );
+        return;
+      }
+
+      const projectIdFromRequest = body['projectId'];
+      if (typeof projectId !== 'string') {
+        respondWithError(
+          StatusCodes.BAD_REQUEST,
+          ReasonPhrases.BAD_REQUEST,
+          `The 'projectId' property of the JSON request body must be a string, ` +
+            `but got: ${typeof projectId}`
+        );
+        return;
+      }
+
+      if (projectId && projectIdFromRequest !== projectId) {
+        respondWithError(
+          StatusCodes.BAD_REQUEST,
+          ReasonPhrases.BAD_REQUEST,
+          `The 'projectId' property of the JSON request body ` +
+            `was expected to be "${projectId}", ` +
+            `but got: "${projectIdFromRequest}"`
+        );
+        return;
+      }
+
+      logger.debug(
+        `[requestId_${requestId}] Creating App Check token for appId=${appId}`
+      );
+      appCheck
+        .createToken(appId, { ttlMillis: MILLIS_FOR_30_MINUTES })
+        .then(appCheckToken => {
+          const responseBody = JSON.stringify({
+            token: appCheckToken.token,
+            ttlMillis: appCheckToken.ttlMillis
+          });
+          logger.debug(
+            `[requestId_${requestId}] Got App Check token: ${responseBody}`
+          );
+          response.writeHead(StatusCodes.OK, ReasonPhrases.OK, {
+            'Content-Type': 'application/json'
+          });
+          response.end(responseBody);
+        })
+        .catch((err: unknown) => {
+          respondWithError(
+            StatusCodes.INTERNAL_SERVER_ERROR,
+            ReasonPhrases.INTERNAL_SERVER_ERROR,
+            `Creating App Check token failed: ${err}`
+          );
+        });
+    });
+  });
+
+  httpServer.listen(port, host, () => {
+    logger.info(`Listening on ${host}:${port}`);
+  });
+
+  return new Promise((resolve, reject) => {
+    httpServer.on('close', resolve);
+    httpServer.on('error', reject);
+  });
 }
 
 function generateRandomAlphaString(length: number): string {
@@ -109,23 +248,17 @@ function generateRandomAlphaString(length: number): string {
   return result;
 }
 
-async function listFirestoreDocuments(app: FirebaseApp) {
-  const firestore = new Firestore(app);
-  logger.info('Getting collection contents');
-  const snapshot = await firestore.collection('AndroidIssue5101').get();
-  logger.info(`Got ${snapshot.size} documents`);
-  for (const document of snapshot.docs) {
-    logger.note(document.ref.path);
-  }
-}
-
-function descriptionForAddress(address: AddressInfo | string | null): string {
+function descriptionForAddress(
+  address: AddressInfo | object | string | null
+): string {
   if (address === null) {
     return 'null';
   } else if (typeof address === 'string') {
     return address;
-  } else {
+  } else if ('address' in address && 'port' in address) {
     return `${address.address}:${address.port}`;
+  } else {
+    return `${address}`;
   }
 }
 
