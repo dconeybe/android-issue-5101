@@ -3,12 +3,19 @@
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!--
+     Set `usesCleartextTraffic=true` to fix this exception:
+     java.net.UnknownServiceException: CLEARTEXT communication to 10.0.2.2 not permitted
+       by network security policy
+     See https://stackoverflow.com/a/50834600 for details.
+     -->
     <application
         android:allowBackup="true"
         android:name=".MyApplication"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.AppCompat"
+        android:usesCleartextTraffic="true"
         tools:targetApi="31">
 
         <activity android:name=".MainActivity" android:exported="true">

@@ -3,6 +3,7 @@ plugins {
   alias(libs.plugins.jetbrains.kotlin.android)
   alias(libs.plugins.gms.google.services)
   alias(libs.plugins.ktfmt.format)
+  alias(libs.plugins.kotlinx.serialization)
 }
 
 android {
@@ -40,6 +41,12 @@ dependencies {
   implementation(libs.androidx.lifecycle.viewmodel.ktx)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.androidx.constraintlayout)
+  implementation(libs.ktor.client.core)
+  implementation(libs.ktor.client.okhttp)
+  implementation(libs.ktor.serialization.kotlinx.json)
+  implementation(libs.ktor.ktor.client.content.negotiation)
+  implementation(libs.kotlinx.serialization.core)
+  implementation(libs.kotlinx.serialization.json)
 
   implementation(platform(libs.firebase.bom))
   implementation(libs.firebase.firestore)
