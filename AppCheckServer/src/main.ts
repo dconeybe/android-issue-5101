@@ -74,7 +74,9 @@ async function runServer(settings: {
         `[requestId_${requestId}] Request failed: ` +
           `${code} (${reason}): ${message}`
       );
-      response.writeHead(code, reason, { 'Content-Type': 'text/plain' });
+      response.writeHead(code, reason, {
+        'Content-Type': 'text/plain'
+      });
       response.end(message);
     };
 
@@ -89,11 +91,15 @@ async function runServer(settings: {
     }
 
     const contentType = request.headers['content-type'];
-    if (contentType !== 'application/json') {
+    if (
+      contentType !== 'application/json' &&
+      contentType !== 'application/x-www-form-urlencoded'
+    ) {
       respondWithError(
         StatusCodes.UNSUPPORTED_MEDIA_TYPE,
         ReasonPhrases.UNSUPPORTED_MEDIA_TYPE,
-        `Content-Type must be application/json, but got: ${contentType}`
+        `Content-Type must be application/json or ` +
+          `application/x-www-form-urlencoded, but got: ${contentType}`
       );
       return;
     }
@@ -119,12 +125,20 @@ async function runServer(settings: {
       logger.debug(`[requestId_${requestId}] Request body: ${bodyText}`);
       let body: unknown;
       try {
-        body = JSON.parse(bodyText);
+        if (contentType === 'application/json') {
+          body = JSON.parse(bodyText);
+        } else {
+          const searchParams = new URLSearchParams(bodyText);
+          body = {
+            appId: searchParams.get('appId'),
+            projectId: searchParams.get('projectId')
+          };
+        }
       } catch (e: unknown) {
         respondWithError(
           StatusCodes.BAD_REQUEST,
           ReasonPhrases.BAD_REQUEST,
-          `Parsing the request body as JSON failed: ${e}`
+          `Parsing the ${contentType} request body failed: ${e}`
         );
         return;
       }
@@ -133,7 +147,7 @@ async function runServer(settings: {
         respondWithError(
           StatusCodes.BAD_REQUEST,
           ReasonPhrases.BAD_REQUEST,
-          `The JSON request body must be an object, but got: null`
+          `The request body must be an object, but got: null`
         );
         return;
       }
@@ -141,7 +155,7 @@ async function runServer(settings: {
         respondWithError(
           StatusCodes.BAD_REQUEST,
           ReasonPhrases.BAD_REQUEST,
-          `The JSON request body must be an object, but got: ${typeof body}`
+          `The request body must be an object, but got: ${typeof body}`
         );
         return;
       }
@@ -150,7 +164,7 @@ async function runServer(settings: {
         respondWithError(
           StatusCodes.BAD_REQUEST,
           ReasonPhrases.BAD_REQUEST,
-          "The JSON request body must have an 'appId' property, " +
+          "The request body must have an 'appId' property, " +
             'but got properties: ' +
             Object.getOwnPropertyNames(body).sort().join(', ')
         );
@@ -215,7 +229,8 @@ async function runServer(settings: {
             `[requestId_${requestId}] Got App Check token: ${responseBody}`
           );
           response.writeHead(StatusCodes.OK, ReasonPhrases.OK, {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
           });
           response.end(responseBody);
         })
