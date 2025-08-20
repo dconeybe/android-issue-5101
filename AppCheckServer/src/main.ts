@@ -75,7 +75,8 @@ async function runServer(settings: {
           `${code} (${reason}): ${message}`
       );
       response.writeHead(code, reason, {
-        'Content-Type': 'text/plain'
+        'Content-Type': 'text/plain',
+        'Access-Control-Allow-Origin': '*'
       });
       response.end(message);
     };
