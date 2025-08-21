@@ -27,8 +27,8 @@ const MILLIS_PER_MINUTE = MILLIS_PER_SECOND * 60;
 const MILLIS_FOR_30_MINUTES = MILLIS_PER_MINUTE * 30;
 
 async function main() {
-  logger.info('Initializing firebase-admin sdk');
   const { host, port, forcedResponse } = await parseArgs();
+  logger.info('Initializing firebase-admin sdk');
   const app = initializeFirebaseApp();
   const appCheck = getFirebaseAppCheck(app);
   const projectId = projectIdFromFirebaseApp(app);
@@ -406,14 +406,14 @@ async function parseArgs(): Promise<ParsedArgs> {
           const statusCode = getStatusCode(value);
           return { code: statusCode, reason: value };
         } catch (_) {
-          // value is not an HTTP status code.
+          // value is not an HTTP reason phrase.
         }
 
         try {
           const reasonPhrase = getReasonPhrase(value);
           return { code: Number.parseInt(value), reason: reasonPhrase };
         } catch (_) {
-          // value is not an HTTP reason phrase.
+          // value is not an HTTP status code.
         }
 
         throw new Error(
