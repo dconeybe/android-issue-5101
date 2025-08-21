@@ -15,15 +15,18 @@
   },
   "type": "commonjs",
   "dependencies": {
+    "dedent": "^1.6.0",
     "firebase-admin": "^12.1.1",
     "http-status-codes": "^2.3.0",
-    "signale": "^1.4.0"
+    "signale": "^1.4.0",
+    "yargs": "^18.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.4.0",
     "@tsconfig/node20": "^20.1.4",
     "@types/node": "^20.14.2",
     "@types/signale": "^1.4.7",
+    "@types/yargs": "^17.0.33",
     "eslint": "^8.57.0",
     "eslint-plugin-simple-import-sort": "^12.1.0",
     "prettier": "^3.3.1",

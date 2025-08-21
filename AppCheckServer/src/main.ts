@@ -1,12 +1,15 @@
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
+import dedent from 'dedent';
 import type { App as FirebaseApp } from 'firebase-admin/app';
 import { initializeApp as initializeFirebaseApp } from 'firebase-admin/app';
 import type { AppCheck as FirebaseAppCheck } from 'firebase-admin/app-check';
 import { getAppCheck as getFirebaseAppCheck } from 'firebase-admin/app-check';
 import { ReasonPhrases, StatusCodes } from 'http-status-codes';
 import * as signale from 'signale';
+import yargs from 'yargs';
+import { hideBin } from 'yargs/helpers';
 
 const logger = new signale.Signale({
   config: {
@@ -20,16 +23,12 @@ const MILLIS_FOR_30_MINUTES = MILLIS_PER_MINUTE * 30;
 
 async function main() {
   logger.info('Initializing firebase-admin sdk');
+  const { host, port } = await parseArgs();
   const app = initializeFirebaseApp();
   const appCheck = getFirebaseAppCheck(app);
   const projectId = projectIdFromFirebaseApp(app);
   logger.info(`Initialized firebase-admin sdk for project: ${projectId}`);
-  await runServer({
-    appCheck,
-    projectId,
-    host: '127.0.0.1',
-    port: 9392
-  });
+  await runServer({ appCheck, projectId, host, port });
 }
 
 function projectIdFromFirebaseApp(app: FirebaseApp): string | undefined {
@@ -246,7 +245,7 @@ async function runServer(settings: {
   });
 
   httpServer.listen(port, host, () => {
-    logger.info(`Listening on ${host}:${port}`);
+    logger.info('Listening on ' + descriptionForAddress(httpServer.address()));
   });
 
   return new Promise((resolve, reject) => {
@@ -276,6 +275,109 @@ function descriptionForAddress(
   } else {
     return `${address}`;
   }
+}
+
+export interface ParsedArgs {
+  host: string;
+  port: number;
+}
+
+export async function parseArgs(): Promise<ParsedArgs> {
+  const yargsResult = await yargs(hideBin(process.argv))
+    .usage(
+      dedent`
+      Usage: $0 [options]
+
+      Runs an HTTP server that can be used as a custom AppCheck provider.
+      `
+    )
+    .epilogue(
+      dedent`
+      The GOOGLE_APPLICATION_CREDENTIALS environment variable must be set to the
+      path of the JSON file with the project information.
+
+      HTTP requests received by this server must have content type
+      application/x-www-form-urlencoded or application/json.
+      Using x-www-form-urlencoded is useful from browsers as it avoids CORS
+      preflight requests.
+
+      Requests must have two keys:
+        projectId: The Firebase project id (e.g. "my-project").
+        appId: The ID of the Firebase app (e.g. "1:1234567890:web:a892437b8923")
+      Both of these values can be retrieved from the Firebase Console at
+      https://console.firebase.google.com. The "projectId" must match the value
+      indicated by GOOGLE_APPLICATION_CREDENTIALS and the "appId" will be
+      validated by the Firebase App Check backend.
+
+      An example application/json request body is:
+        {"projectId":"my-project","appId":"1:1234567890:web:a892437b8923"}
+      A JavaScript application can create this string as follows:
+        JSON.stringify({"projectId": "my-project", "appId": "1:1234567890:web:a892437b8923"})
+
+      An example application/x-www-form-urlencoded request body is:
+        projectId=my-project&appId=1%3A1234567890%3Aweb%3Aa892437b8923
+      A JavaScript application can create this string as follows:
+        const body = new URLSearchParams();
+        body.append("projectId", "my-project");
+        body.append("appId", "1:1234567890:web:a892437b8923");
+
+      On success, the response body will have application/json Content-Type and
+      will have two keys:
+         token: a string whose value is the AppCheck token
+         ttlMillis: a number whose value is the amount of time, in milliseconds,
+           that the token is valid
+
+      Here is sample JavaScript code that can communicate with this server:
+        const body = new URLSearchParams();
+        body.append("projectId", "my-project");
+        body.append("appId", "1:1234567890:web:a892437b8923");
+
+        const response = await fetch('http://localhost:9392', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body
+        });
+
+        const data = await response.json();
+        const token: AppCheckToken = {
+          token: data.token,
+          expireTimeMillis: Date.now() + data.ttlMillis
+        };
+      `
+    )
+    .option('host', {
+      string: true,
+      default: '127.0.0.1',
+      describe: 'The network interface on which the HTTP server will listen.'
+    })
+    .option('port', {
+      string: true,
+      default: 0,
+      coerce: (value: string): number => {
+        const parsedValue = Number.parseInt(value);
+        if (!Number.isInteger(parsedValue)) {
+          throw new Error(`invalid port: ${value} (must be a number)`);
+        } else if (parsedValue < 0) {
+          throw new Error(
+            `invalid port: ${value} (must be greater than or equal to zero)`
+          );
+        }
+        return parsedValue;
+      },
+      describe:
+        'The TCP port to which the HTTP server will bind; ' +
+        'if 0 (zero) a random available port will be chosen.'
+    })
+    .help()
+    .version(false)
+    .showHelpOnFail(false, 'Run with --help for help')
+    .strict()
+    .parseAsync();
+
+  return {
+    host: yargsResult.host,
+    port: yargsResult.port
+  };
 }
 
 main();
