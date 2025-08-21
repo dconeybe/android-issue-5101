@@ -6,7 +6,12 @@ import type { App as FirebaseApp } from 'firebase-admin/app';
 import { initializeApp as initializeFirebaseApp } from 'firebase-admin/app';
 import type { AppCheck as FirebaseAppCheck } from 'firebase-admin/app-check';
 import { getAppCheck as getFirebaseAppCheck } from 'firebase-admin/app-check';
-import { ReasonPhrases, StatusCodes } from 'http-status-codes';
+import {
+  getReasonPhrase,
+  getStatusCode,
+  ReasonPhrases,
+  StatusCodes
+} from 'http-status-codes';
 import * as signale from 'signale';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
@@ -23,12 +28,12 @@ const MILLIS_FOR_30_MINUTES = MILLIS_PER_MINUTE * 30;
 
 async function main() {
   logger.info('Initializing firebase-admin sdk');
-  const { host, port } = await parseArgs();
+  const { host, port, forcedResponse } = await parseArgs();
   const app = initializeFirebaseApp();
   const appCheck = getFirebaseAppCheck(app);
   const projectId = projectIdFromFirebaseApp(app);
   logger.info(`Initialized firebase-admin sdk for project: ${projectId}`);
-  await runServer({ appCheck, projectId, host, port });
+  await runServer({ appCheck, projectId, host, port, forcedResponse });
 }
 
 function projectIdFromFirebaseApp(app: FirebaseApp): string | undefined {
@@ -54,8 +59,9 @@ async function runServer(settings: {
   host: string;
   port: number;
   projectId?: string | undefined;
+  forcedResponse?: ForcedResponse | undefined;
 }) {
-  const { appCheck, host, port, projectId } = settings;
+  const { appCheck, host, port, projectId, forcedResponse } = settings;
 
   const httpServer = createServer((request, response) => {
     const requestId = generateRandomAlphaString(6);
@@ -79,6 +85,16 @@ async function runServer(settings: {
       });
       response.end(message);
     };
+
+    if (forcedResponse) {
+      const { code, reason } = forcedResponse;
+      respondWithError(
+        code,
+        reason,
+        `Unconditionally returned HTTP response code ${code} (${reason})`
+      );
+      return;
+    }
 
     const requestMethod = request.method;
     if (requestMethod !== 'POST') {
@@ -246,6 +262,12 @@ async function runServer(settings: {
 
   httpServer.listen(port, host, () => {
     logger.info('Listening on ' + descriptionForAddress(httpServer.address()));
+    if (forcedResponse) {
+      logger.note(
+        'HTTP server will unconditionally return HTTP status code ' +
+          `${forcedResponse.code} (${forcedResponse.reason})`
+      );
+    }
   });
 
   return new Promise((resolve, reject) => {
@@ -277,12 +299,18 @@ function descriptionForAddress(
   }
 }
 
-export interface ParsedArgs {
-  host: string;
-  port: number;
+interface ForcedResponse {
+  code: number;
+  reason: string;
 }
 
-export async function parseArgs(): Promise<ParsedArgs> {
+interface ParsedArgs {
+  host: string;
+  port: number;
+  forcedResponse: ForcedResponse | undefined;
+}
+
+async function parseArgs(): Promise<ParsedArgs> {
   const yargsResult = await yargs(hideBin(process.argv))
     .usage(
       dedent`
@@ -346,11 +374,13 @@ export async function parseArgs(): Promise<ParsedArgs> {
       `
     )
     .option('host', {
+      alias: 'h',
       string: true,
       default: '127.0.0.1',
       describe: 'The network interface on which the HTTP server will listen.'
     })
     .option('port', {
+      alias: 'p',
       string: true,
       default: 0,
       coerce: (value: string): number => {
@@ -368,6 +398,36 @@ export async function parseArgs(): Promise<ParsedArgs> {
         'The TCP port to which the HTTP server will bind; ' +
         'if 0 (zero) a random available port will be chosen.'
     })
+    .option('responseCode', {
+      alias: 'r',
+      string: true,
+      coerce: (value: string): ForcedResponse => {
+        try {
+          const statusCode = getStatusCode(value);
+          return { code: statusCode, reason: value };
+        } catch (_) {
+          // value is not an HTTP status code.
+        }
+
+        try {
+          const reasonPhrase = getReasonPhrase(value);
+          return { code: Number.parseInt(value), reason: reasonPhrase };
+        } catch (_) {
+          // value is not an HTTP reason phrase.
+        }
+
+        throw new Error(
+          'invalid HTTP response code or reason phrase: ' + value
+        );
+      },
+      describe:
+        'The HTTP response code to unconditionally return. ' +
+        'Specifying an HTTP response code will cause the HTTP server to ' +
+        'not "do" anything and unconditionally return the specified response ' +
+        'code. This is useful for simulating error conditions for testing ' +
+        'purposes. This can be specified as a number (e.g. 200, 418) or a ' +
+        'reason phrase (e.g. "OK", "I\'m a teapot").'
+    })
     .help()
     .version(false)
     .showHelpOnFail(false, 'Run with --help for help')
@@ -376,7 +436,8 @@ export async function parseArgs(): Promise<ParsedArgs> {
 
   return {
     host: yargsResult.host,
-    port: yargsResult.port
+    port: yargsResult.port,
+    forcedResponse: yargsResult.responseCode
   };
 }
 
