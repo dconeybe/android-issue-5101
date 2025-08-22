@@ -28,7 +28,8 @@ const MILLIS_PER_MINUTE = MILLIS_PER_SECOND * 60;
 const MILLIS_FOR_30_MINUTES = MILLIS_PER_MINUTE * 30;
 
 async function main() {
-  const { host, port, forcedResponse, forcedTtlMillis } = await parseArgs();
+  const { host, port, forcedResponse, forcedToken, forcedTtlMillis } =
+    await parseArgs();
   logger.info('Initializing firebase-admin sdk');
   const app = initializeFirebaseApp();
   const appCheck = getFirebaseAppCheck(app);
@@ -40,6 +41,7 @@ async function main() {
     host,
     port,
     forcedResponse,
+    forcedToken,
     forcedTtlMillis
   });
 }
@@ -68,10 +70,18 @@ async function runServer(settings: {
   port: number;
   projectId?: string | undefined;
   forcedResponse?: ForcedResponse | undefined;
+  forcedToken?: string | undefined;
   forcedTtlMillis?: number | undefined;
 }) {
-  const { appCheck, host, port, projectId, forcedResponse, forcedTtlMillis } =
-    settings;
+  const {
+    appCheck,
+    host,
+    port,
+    projectId,
+    forcedResponse,
+    forcedToken,
+    forcedTtlMillis
+  } = settings;
 
   const httpServer = createServer((request, response) => {
     const requestId = generateRandomAlphaString(6);
@@ -103,6 +113,22 @@ async function runServer(settings: {
         reason,
         `Unconditionally returned HTTP response code ${code} (${reason})`
       );
+      return;
+    } else if (forcedToken) {
+      const ttlMillis = forcedTtlMillis ?? MILLIS_FOR_30_MINUTES;
+      const responseBody = JSON.stringify({
+        token: forcedToken,
+        ttlMillis
+      });
+      logger.info(
+        `[requestId_${requestId}] Sending response: ${responseBody} ` +
+          `(ttlMillis=${ms(ttlMillis, { long: true })})`
+      );
+      response.writeHead(StatusCodes.OK, ReasonPhrases.OK, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      });
+      response.end(responseBody);
       return;
     }
 
@@ -284,12 +310,18 @@ async function runServer(settings: {
         'HTTP server will unconditionally return HTTP status code ' +
           `${forcedResponse.code} (${forcedResponse.reason})`
       );
-    }
-    if (forcedTtlMillis) {
-      logger.note(
-        `HTTP server will unconditionally return ` +
-          `ttlMillis=${forcedTtlMillis} (${ms(forcedTtlMillis, { long: true })})`
-      );
+    } else {
+      if (forcedToken) {
+        logger.note(
+          `HTTP server will unconditionally return token=${forcedToken}`
+        );
+      }
+      if (forcedTtlMillis) {
+        logger.note(
+          `HTTP server will unconditionally return ` +
+            `ttlMillis=${forcedTtlMillis} (${ms(forcedTtlMillis, { long: true })})`
+        );
+      }
     }
   });
 
@@ -331,6 +363,7 @@ interface ParsedArgs {
   host: string;
   port: number;
   forcedResponse: ForcedResponse | undefined;
+  forcedToken: string | undefined;
   forcedTtlMillis: number | undefined;
 }
 
@@ -423,7 +456,6 @@ async function parseArgs(): Promise<ParsedArgs> {
         'if 0 (zero) a random available port will be chosen.'
     })
     .option('ttl', {
-      alias: 't',
       string: true,
       coerce: (value: string): number => {
         const parsedValue: unknown = ms(value as ms.StringValue);
@@ -477,6 +509,14 @@ async function parseArgs(): Promise<ParsedArgs> {
         'purposes. This can be specified as a number (e.g. 200, 418) or a ' +
         'reason phrase (e.g. "OK", "I\'m a teapot").'
     })
+    .option('token', {
+      string: true,
+      describe:
+        'The token to return instead of getting one from the App Check ' +
+        'server. When specified, a TTL of 30 minutes will be used, unless ' +
+        'overridden by the --ttl flag. Also, when specified, no ' +
+        'verification of projectId or appId in HTTP requests will be done.'
+    })
     .help()
     .version(false)
     .showHelpOnFail(false, 'Run with --help for help')
@@ -487,6 +527,7 @@ async function parseArgs(): Promise<ParsedArgs> {
     host: yargsResult.host,
     port: yargsResult.port,
     forcedResponse: yargsResult.responseCode,
+    forcedToken: yargsResult.token,
     forcedTtlMillis: yargsResult.ttl
   };
 }
