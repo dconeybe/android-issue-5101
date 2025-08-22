@@ -12,6 +12,7 @@ import {
   ReasonPhrases,
   StatusCodes
 } from 'http-status-codes';
+import ms from 'ms';
 import * as signale from 'signale';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
@@ -27,13 +28,20 @@ const MILLIS_PER_MINUTE = MILLIS_PER_SECOND * 60;
 const MILLIS_FOR_30_MINUTES = MILLIS_PER_MINUTE * 30;
 
 async function main() {
-  const { host, port, forcedResponse } = await parseArgs();
+  const { host, port, forcedResponse, forcedTtlMillis } = await parseArgs();
   logger.info('Initializing firebase-admin sdk');
   const app = initializeFirebaseApp();
   const appCheck = getFirebaseAppCheck(app);
   const projectId = projectIdFromFirebaseApp(app);
   logger.info(`Initialized firebase-admin sdk for project: ${projectId}`);
-  await runServer({ appCheck, projectId, host, port, forcedResponse });
+  await runServer({
+    appCheck,
+    projectId,
+    host,
+    port,
+    forcedResponse,
+    forcedTtlMillis
+  });
 }
 
 function projectIdFromFirebaseApp(app: FirebaseApp): string | undefined {
@@ -60,8 +68,10 @@ async function runServer(settings: {
   port: number;
   projectId?: string | undefined;
   forcedResponse?: ForcedResponse | undefined;
+  forcedTtlMillis?: number | undefined;
 }) {
-  const { appCheck, host, port, projectId, forcedResponse } = settings;
+  const { appCheck, host, port, projectId, forcedResponse, forcedTtlMillis } =
+    settings;
 
   const httpServer = createServer((request, response) => {
     const requestId = generateRandomAlphaString(6);
@@ -138,7 +148,7 @@ async function runServer(settings: {
         return;
       }
 
-      logger.debug(`[requestId_${requestId}] Request body: ${bodyText}`);
+      logger.info(`[requestId_${requestId}] Request body: ${bodyText}`);
       let body: unknown;
       try {
         if (contentType === 'application/json') {
@@ -231,18 +241,25 @@ async function runServer(settings: {
         return;
       }
 
-      logger.debug(
+      logger.info(
         `[requestId_${requestId}] Creating App Check token for appId=${appId}`
       );
       appCheck
         .createToken(appId, { ttlMillis: MILLIS_FOR_30_MINUTES })
         .then(appCheckToken => {
+          logger.info(
+            `[requestId_${requestId}] Created App Check token ` +
+              `with ttlMillis=${appCheckToken.ttlMillis} ` +
+              `(${ms(appCheckToken.ttlMillis, { long: true })})`
+          );
+          const ttlMillis = forcedTtlMillis ?? appCheckToken.ttlMillis;
           const responseBody = JSON.stringify({
             token: appCheckToken.token,
-            ttlMillis: appCheckToken.ttlMillis
+            ttlMillis
           });
-          logger.debug(
-            `[requestId_${requestId}] Got App Check token: ${responseBody}`
+          logger.info(
+            `[requestId_${requestId}] Sending response: ${responseBody} ` +
+              `(ttlMillis=${ms(ttlMillis, { long: true })})`
           );
           response.writeHead(StatusCodes.OK, ReasonPhrases.OK, {
             'Content-Type': 'application/json',
@@ -266,6 +283,12 @@ async function runServer(settings: {
       logger.note(
         'HTTP server will unconditionally return HTTP status code ' +
           `${forcedResponse.code} (${forcedResponse.reason})`
+      );
+    }
+    if (forcedTtlMillis) {
+      logger.note(
+        `HTTP server will unconditionally return ` +
+          `ttlMillis=${forcedTtlMillis} (${ms(forcedTtlMillis, { long: true })})`
       );
     }
   });
@@ -308,6 +331,7 @@ interface ParsedArgs {
   host: string;
   port: number;
   forcedResponse: ForcedResponse | undefined;
+  forcedTtlMillis: number | undefined;
 }
 
 async function parseArgs(): Promise<ParsedArgs> {
@@ -398,6 +422,31 @@ async function parseArgs(): Promise<ParsedArgs> {
         'The TCP port to which the HTTP server will bind; ' +
         'if 0 (zero) a random available port will be chosen.'
     })
+    .option('ttl', {
+      alias: 't',
+      string: true,
+      coerce: (value: string): number => {
+        const parsedValue: unknown = ms(value as ms.StringValue);
+        if (typeof parsedValue !== 'number' || !Number.isFinite(parsedValue)) {
+          throw new Error(`invalid TTL: "${value}" (unable to parse)`);
+        }
+        if (parsedValue < 0) {
+          throw new Error(
+            `invalid TTL: ${value} (must be greater than or equal to zero)`
+          );
+        }
+        return parsedValue;
+      },
+      describe:
+        'The TTL (time to live) of the AppCheck token to report in the ' +
+        'response body, overriding the TTL indicated in the response from the ' +
+        'App Check server. The value is specified as a number (in milliseconds) ' +
+        'or a string (e.g. "5m", "1h"). See https://github.com/vercel/ms ' +
+        'for the list of supported string formats. ' +
+        'Note that this value does _not_ affect the _actual_ TTL of the token, ' +
+        'which is always 30 minutes, but, rather, the value sent back in the ' +
+        'HTTP response bodies from this HTTP server.'
+    })
     .option('responseCode', {
       alias: 'r',
       string: true,
@@ -437,7 +486,8 @@ async function parseArgs(): Promise<ParsedArgs> {
   return {
     host: yargsResult.host,
     port: yargsResult.port,
-    forcedResponse: yargsResult.responseCode
+    forcedResponse: yargsResult.responseCode,
+    forcedTtlMillis: yargsResult.ttl
   };
 }
 
