@@ -1,21 +1,15 @@
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-import dedent from 'dedent';
 import type { App as FirebaseApp } from 'firebase-admin/app';
 import { initializeApp as initializeFirebaseApp } from 'firebase-admin/app';
 import type { AppCheck as FirebaseAppCheck } from 'firebase-admin/app-check';
 import { getAppCheck as getFirebaseAppCheck } from 'firebase-admin/app-check';
-import {
-  getReasonPhrase,
-  getStatusCode,
-  ReasonPhrases,
-  StatusCodes
-} from 'http-status-codes';
+import { ReasonPhrases, StatusCodes } from 'http-status-codes';
 import ms from 'ms';
 import * as signale from 'signale';
-import yargs from 'yargs';
-import { hideBin } from 'yargs/helpers';
+
+import { type ForcedResponse, parseArgs } from './argparse';
 
 const logger = new signale.Signale({
   config: {
@@ -352,184 +346,6 @@ function descriptionForAddress(
   } else {
     return `${address}`;
   }
-}
-
-interface ForcedResponse {
-  code: number;
-  reason: string;
-}
-
-interface ParsedArgs {
-  host: string;
-  port: number;
-  forcedResponse: ForcedResponse | undefined;
-  forcedToken: string | undefined;
-  forcedTtlMillis: number | undefined;
-}
-
-async function parseArgs(): Promise<ParsedArgs> {
-  const yargsResult = await yargs(hideBin(process.argv))
-    .usage(
-      dedent`
-      Usage: $0 [options]
-
-      Runs an HTTP server that can be used as a custom AppCheck provider.
-      `
-    )
-    .epilogue(
-      dedent`
-      The GOOGLE_APPLICATION_CREDENTIALS environment variable must be set to the
-      path of the JSON file with the project information.
-
-      HTTP requests received by this server must have content type
-      application/x-www-form-urlencoded or application/json.
-      Using x-www-form-urlencoded is useful from browsers as it avoids CORS
-      preflight requests.
-
-      Requests must have two keys:
-        projectId: The Firebase project id (e.g. "my-project").
-        appId: The ID of the Firebase app (e.g. "1:1234567890:web:a892437b8923")
-      Both of these values can be retrieved from the Firebase Console at
-      https://console.firebase.google.com. The "projectId" must match the value
-      indicated by GOOGLE_APPLICATION_CREDENTIALS and the "appId" will be
-      validated by the Firebase App Check backend.
-
-      An example application/json request body is:
-        {"projectId":"my-project","appId":"1:1234567890:web:a892437b8923"}
-      A JavaScript application can create this string as follows:
-        JSON.stringify({"projectId": "my-project", "appId": "1:1234567890:web:a892437b8923"})
-
-      An example application/x-www-form-urlencoded request body is:
-        projectId=my-project&appId=1%3A1234567890%3Aweb%3Aa892437b8923
-      A JavaScript application can create this string as follows:
-        const body = new URLSearchParams();
-        body.append("projectId", "my-project");
-        body.append("appId", "1:1234567890:web:a892437b8923");
-
-      On success, the response body will have application/json Content-Type and
-      will have two keys:
-         token: a string whose value is the AppCheck token
-         ttlMillis: a number whose value is the amount of time, in milliseconds,
-           that the token is valid
-
-      Here is sample JavaScript code that can communicate with this server:
-        const body = new URLSearchParams();
-        body.append("projectId", "my-project");
-        body.append("appId", "1:1234567890:web:a892437b8923");
-
-        const response = await fetch('http://localhost:9392', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body
-        });
-
-        const data = await response.json();
-        const token: AppCheckToken = {
-          token: data.token,
-          expireTimeMillis: Date.now() + data.ttlMillis
-        };
-      `
-    )
-    .option('host', {
-      alias: 'h',
-      string: true,
-      default: '127.0.0.1',
-      describe: 'The network interface on which the HTTP server will listen.'
-    })
-    .option('port', {
-      alias: 'p',
-      string: true,
-      default: 0,
-      coerce: (value: string): number => {
-        const parsedValue = Number.parseInt(value);
-        if (!Number.isInteger(parsedValue)) {
-          throw new Error(`invalid port: ${value} (must be a number)`);
-        } else if (parsedValue < 0) {
-          throw new Error(
-            `invalid port: ${value} (must be greater than or equal to zero)`
-          );
-        }
-        return parsedValue;
-      },
-      describe:
-        'The TCP port to which the HTTP server will bind; ' +
-        'if 0 (zero) a random available port will be chosen.'
-    })
-    .option('ttl', {
-      string: true,
-      coerce: (value: string): number => {
-        const parsedValue: unknown = ms(value as ms.StringValue);
-        if (typeof parsedValue !== 'number' || !Number.isFinite(parsedValue)) {
-          throw new Error(`invalid TTL: "${value}" (unable to parse)`);
-        }
-        if (parsedValue < 0) {
-          throw new Error(
-            `invalid TTL: ${value} (must be greater than or equal to zero)`
-          );
-        }
-        return parsedValue;
-      },
-      describe:
-        'The TTL (time to live) of the AppCheck token to report in the ' +
-        'response body, overriding the TTL indicated in the response from the ' +
-        'App Check server. The value is specified as a number (in milliseconds) ' +
-        'or a string (e.g. "5m", "1h"). See https://github.com/vercel/ms ' +
-        'for the list of supported string formats. ' +
-        'Note that this value does _not_ affect the _actual_ TTL of the token, ' +
-        'which is always 30 minutes, but, rather, the value sent back in the ' +
-        'HTTP response bodies from this HTTP server.'
-    })
-    .option('responseCode', {
-      alias: 'r',
-      string: true,
-      coerce: (value: string): ForcedResponse => {
-        try {
-          const statusCode = getStatusCode(value);
-          return { code: statusCode, reason: value };
-        } catch (_) {
-          // value is not an HTTP reason phrase.
-        }
-
-        try {
-          const reasonPhrase = getReasonPhrase(value);
-          return { code: Number.parseInt(value), reason: reasonPhrase };
-        } catch (_) {
-          // value is not an HTTP status code.
-        }
-
-        throw new Error(
-          'invalid HTTP response code or reason phrase: ' + value
-        );
-      },
-      describe:
-        'The HTTP response code to unconditionally return. ' +
-        'Specifying an HTTP response code will cause the HTTP server to ' +
-        'not "do" anything and unconditionally return the specified response ' +
-        'code. This is useful for simulating error conditions for testing ' +
-        'purposes. This can be specified as a number (e.g. 200, 418) or a ' +
-        'reason phrase (e.g. "OK", "I\'m a teapot").'
-    })
-    .option('token', {
-      string: true,
-      describe:
-        'The token to return instead of getting one from the App Check ' +
-        'server. When specified, a TTL of 30 minutes will be used, unless ' +
-        'overridden by the --ttl flag. Also, when specified, no ' +
-        'verification of projectId or appId in HTTP requests will be done.'
-    })
-    .help()
-    .version(false)
-    .showHelpOnFail(false, 'Run with --help for help')
-    .strict()
-    .parseAsync();
-
-  return {
-    host: yargsResult.host,
-    port: yargsResult.port,
-    forcedResponse: yargsResult.responseCode,
-    forcedToken: yargsResult.token,
-    forcedTtlMillis: yargsResult.ttl
-  };
 }
 
 main();
